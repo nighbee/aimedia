@@ -1,0 +1,142 @@
+================================================================================
+  AI MEDIA WATCH — API GATEWAY IMPLEMENTATION PLAN
+  Go 1.22 + Fiber v2 + Zap + Kafka + PostgreSQL
+================================================================================
+
+1. OVERVIEW
+───────────────────────────────────────────────────────────────────────────────
+Implement the Go + Fiber API Gateway — the single HTTP entry point for the
+React frontend and the Kafka consumer for completed job events. This is a
+Clean Architecture layout (handler → service → repository/queue) with
+dependency injection via constructor functions (no framework DI).
+
+2. TECHNOLOGY STACK
+───────────────────────────────────────────────────────────────────────────────
+  - Go 1.22 (no generics tricks, stdlib as much as possible)
+  - Fiber v2 (github.com/gofiber/fiber/v2) — HTTP framework
+  - pgx v5 (github.com/jackc/pgx/v5) — PostgreSQL driver
+  - segmentio/kafka-go (github.com/segmentio/kafka-go) — Kafka client
+  - uber-go/zap (go.uber.org/zap) — Structured logging
+  - golang-jwt/jwt/v5 (github.com/golang-jwt/jwt/v5) — JWT auth
+  - google/uuid (github.com/google/uuid) — UUID generation
+
+3. DIRECTORY STRUCTURE
+───────────────────────────────────────────────────────────────────────────────
+  api-gateway/
+  ├── cmd/server/main.go           # Entry point: init config, DB, Kafka, start server
+  ├── internal/
+  │   ├── config/config.go         # Env-based config struct (see dev-env-spec.md)
+  │   ├── model/
+  │   │   ├── job.go               # Job struct (matches core.jobs schema)
+  │   │   └── result.go            # AnalysisResult struct (matches analysis.results)
+  │   ├── repository/
+  │   │   ├── jobs.go              # JobRepository: Create, FindByID, List, UpdateStatus
+  │   │   └── results.go           # ResultRepository: Upsert analysis results
+  │   ├── queue/
+  │   │   ├── producer.go          # KafkaProducer: PublishJobCreated
+  │   │   └── consumer.go          # KafkaConsumer: ConsumeJobCompleted (background goroutine)
+  │   ├── middleware/
+  │   │   ├── logger.go            # Zap HTTP request logging middleware
+  │   │   ├── auth.go              # JWT bearer token verification
+  │   │   └── recovery.go          # Fiber panic recovery with zap logging
+  │   ├── handler/
+  │   │   ├── handler.go           # Handler struct (holds service reference)
+  │   │   ├── jobs.go              # POST/GET /api/v1/jobs, GET /api/v1/jobs/:id, GET /api/v1/jobs/:id/evidence
+  │   │   ├── health.go            # GET /api/v1/health
+  │   │   └── internal.go          # PATCH /internal/v1/jobs/:id/status (Python worker calls)
+  │   ├── service/
+  │   │   ├── service.go           # Service interface definition
+  │   │   └── jobs.go              # JobService: SubmitJob, GetJob, ListJobs, GetEvidenceURL, UpdateJobStatus
+  │   └── router/
+  │       └── router.go            # Registers all routes, mounts middleware
+  ├── .env.example
+  ├── Dockerfile
+  ├── go.mod / go.sum
+  └── plan.txt
+
+4. IMPLEMENTATION ORDER (13 Tasks)
+───────────────────────────────────────────────────────────────────────────────
+
+  TASK 1  — Project init: go.mod, go.sum, dependency installation
+  TASK 2  — Config package: env-based configuration struct
+  TASK 3  — Model package: Job and AnalysisResult structs
+  TASK 4  — Repository layer: PostgreSQL CRUD for jobs and results
+  TASK 5  — Queue layer: Kafka producer (media.job.created) and consumer
+  TASK 6  — Middleware: Zap logger, JWT auth, panic recovery
+  TASK 7  — Service layer: business logic (submit, list, get, status update)
+  TASK 8  — Handler layer: HTTP handlers for all endpoints
+  TASK 9  — Router: route registration + middleware binding
+  TASK 10 — Main entry point: wire everything, start server + consumer
+  TASK 11 — Dockerfile: full multi-stage build
+  TASK 12 — docker-compose: sync with go-api service (env vars, healthcheck)
+  TASK 13 — .env.example file for dev environment
+
+5. ENDPOINTS
+───────────────────────────────────────────────────────────────────────────────
+  Public / Health:
+    GET  /api/v1/health              → 200 { status, components... }
+
+  External (JWT-protected, consumed by React frontend):
+    POST /api/v1/jobs                → 202 { job_id, status, created_at }
+    GET  /api/v1/jobs                → 200 [{ job objects }] (?status=pending)
+    GET  /api/v1/jobs/:id            → 200 { full job + categories + evidence_url }
+    GET  /api/v1/jobs/:id/evidence   → 200 { evidence_url } (signed GCS URL)
+
+  Internal (token-protected, consumed by Python worker):
+    PATCH /internal/v1/jobs/:id/status  → 200 { status }
+
+6. KAFKA TOPICS
+───────────────────────────────────────────────────────────────────────────────
+  Produce: media.job.created  →  { job_id, url, priority, submitted_at }
+  Consume: media.job.completed →  { job_id, status, risk_score, categories,
+                                     evidence_url, error }
+
+7. CONFIG (from env, see dev-env-spec.md for full reference)
+───────────────────────────────────────────────────────────────────────────────
+  PORT, ENV
+  DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSL_MODE
+  DB_MAX_OPEN_CONNS, DB_MAX_IDLE_CONNS
+  KAFKA_BROKERS, KAFKA_GROUP_ID, KAFKA_TOPIC_JOB_CREATED, KAFKA_TOPIC_JOB_COMPLETED
+  JWT_SECRET, JWT_EXPIRY_HOURS
+  GCS_BUCKET_NAME, GCS_SIGNED_URL_EXPIRY_HOURS, GOOGLE_APPLICATION_CREDENTIALS
+
+8. DB SCHEMA (core.jobs + analysis.results)
+───────────────────────────────────────────────────────────────────────────────
+  core.jobs:
+    id (UUID PK), url (TEXT), platform (VARCHAR 32), status (VARCHAR 32),
+    priority (SMALLINT), risk_score (SMALLINT), confidence (VARCHAR 16),
+    reasoning (TEXT), evidence_url (TEXT), failed_at_stage (VARCHAR 32),
+    retry_count (SMALLINT), inspector_id (UUID FK), created_at (TIMESTAMPTZ),
+    updated_at (TIMESTAMPTZ), completed_at (TIMESTAMPTZ)
+
+  analysis.results:
+    id (UUID PK), job_id (UUID FK), illegal_gambling_score (SMALLINT),
+    pyramid_scheme_score (SMALLINT), investment_fraud_score (SMALLINT),
+    referral_scheme_score (SMALLINT), top_flags (JSONB),
+    extracted_signals (JSONB), soniox_job_id (TEXT),
+    gemini_pass1_request_id (TEXT), gemini_pass2_request_id (TEXT),
+    created_at (TIMESTAMPTZ)
+
+9. DEPENDENCY GRAPH
+───────────────────────────────────────────────────────────────────────────────
+                  cmd/server/main.go
+                        |
+                     router.go
+                    /    |    \
+              handler   middleware   service
+              /    \       |           |
+          repository   queue       config
+              |           |
+          PostgreSQL    Kafka
+
+10. ERROR HANDLING STRATEGY
+───────────────────────────────────────────────────────────────────────────────
+  - All errors are logged via zap at the handler layer
+  - Service layer returns typed errors (ErrNotFound, ErrValidation, ErrInternal)
+  - Handler maps typed errors to appropriate HTTP status codes
+  - Panic recovery middleware catches panics, logs stack trace, returns 500
+  - Kafka consumer errors are logged and retried with backoff
+
+================================================================================
+  END OF PLAN
+================================================================================

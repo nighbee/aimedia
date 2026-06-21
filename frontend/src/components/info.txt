@@ -1,0 +1,1 @@
+Reusable UI components (buttons, tables, status badges, layout wrapper).

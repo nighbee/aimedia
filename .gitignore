@@ -1,0 +1,28 @@
+.commandcode
+.claude
+.gemini
+GEMINI.md
+
+# Go
+*.exe
+*.out
+*.test
+*.test.exe
+*.exe~
+main
+*.exe
+
+# Environment
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

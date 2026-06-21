@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Media Watch — Evidence Pack {{ job_id }}</title>
+  <style>
+    @page { margin: 20mm 18mm; size: A4; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Arial', Helvetica, sans-serif; font-size: 10pt; color: #1a1a2e; background: #fff; }
+
+    /* ── Cover ── */
+    .cover { page-break-after: always; padding: 40mm 20mm; text-align: center; border-bottom: 3px solid #6b21a8; }
+    .cover .logo { font-size: 28pt; font-weight: 900; color: #6b21a8; letter-spacing: -1px; }
+    .cover .subtitle { color: #64748b; font-size: 11pt; margin-top: 6px; }
+    .cover .report-id { margin-top: 30mm; font-size: 9pt; color: #94a3b8; font-family: monospace; }
+    .cover .report-id span { color: #475569; }
+    .risk-score-badge { display: inline-block; margin: 8mm auto; padding: 6mm 12mm; border-radius: 8px; font-size: 42pt; font-weight: 900; line-height: 1; }
+    .risk-high  { background: #fef2f2; color: #dc2626; border: 2px solid #fca5a5; }
+    .risk-medium { background: #fffbeb; color: #d97706; border: 2px solid #fcd34d; }
+    .risk-low   { background: #f0fdf4; color: #16a34a; border: 2px solid #86efac; }
+    .cover .meta-row { display: flex; justify-content: center; gap: 10mm; flex-wrap: wrap; margin-top: 8mm; font-size: 9pt; color: #475569; }
+    .cover .meta-item label { font-weight: 700; display: block; color: #1e293b; }
+
+    /* ── Section ── */
+    h1 { font-size: 14pt; color: #6b21a8; border-bottom: 1.5px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; margin-top: 16px; }
+    h2 { font-size: 11pt; color: #334155; margin-bottom: 6px; margin-top: 12px; }
+    p { margin-bottom: 6px; line-height: 1.55; }
+    .section { page-break-inside: avoid; margin-bottom: 14px; }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-bottom: 10px; }
+    th { background: #f1f5f9; color: #334155; padding: 5px 8px; text-align: left; border: 1px solid #e2e8f0; font-weight: 700; }
+    td { padding: 4px 8px; border: 1px solid #e2e8f0; vertical-align: top; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .weight-high   { color: #dc2626; font-weight: 700; }
+    .weight-medium { color: #d97706; font-weight: 600; }
+    .weight-low    { color: #16a34a; }
+
+    /* ── Keyframes ── */
+    .frames-grid { display: flex; flex-wrap: wrap; gap: 6mm; }
+    .frame-item { width: 58mm; text-align: center; font-size: 8pt; color: #64748b; }
+    .frame-item img { width: 100%; border: 1px solid #e2e8f0; border-radius: 4px; }
+
+    /* ── Transcript ── */
+    .transcript-block { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px 10px; font-size: 9pt; line-height: 1.7; }
+    .flagged { background: #fef2f2; color: #991b1b; font-weight: 600; border-radius: 2px; padding: 0 2px; }
+
+    /* ── Chain of custody ── */
+    .custody-table td:first-child { font-family: monospace; color: #475569; white-space: nowrap; }
+
+    /* ── Footer ── */
+    @page { @bottom-center { content: "AI Media Watch Evidence Pack — CONFIDENTIAL — Page " counter(page) " of " counter(pages); font-size: 8pt; color: #94a3b8; } }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════ COVER PAGE ══════════════ -->
+<div class="cover">
+  <div class="logo">AI Media Watch</div>
+  <div class="subtitle">Automated Fraud Detection — Evidence Pack</div>
+  <div class="report-id">
+    Report ID: <span>{{ job_id }}</span><br>
+    Generated: <span>{{ generated_at }}</span>
+  </div>
+
+  <div class="risk-score-badge risk-{{ risk_tier }}">{{ risk_score }}</div>
+  <div style="color:#475569;font-size:10pt;margin-top:-4mm;font-weight:700;">{{ risk_tier_label }} Risk · Confidence: {{ confidence }}</div>
+
+  <div class="meta-row">
+    <div class="meta-item"><label>Platform</label>{{ platform | upper }}</div>
+    <div class="meta-item"><label>Inspector ID</label>{{ inspector_id }}</div>
+    <div class="meta-item"><label>Source URL</label>{{ source_url[:55] }}{% if source_url|length > 55 %}…{% endif %}</div>
+  </div>
+</div>
+
+<!-- ══════════════ EXECUTIVE SUMMARY ══════════════ -->
+<div class="section">
+  <h1>1. Executive Summary</h1>
+  <p>{{ reasoning }}</p>
+</div>
+
+<!-- ══════════════ RISK SCORE BREAKDOWN ══════════════ -->
+<div class="section">
+  <h1>2. Risk Score Breakdown</h1>
+  <table>
+    <tr><th>Category</th><th>Score (0–100)</th></tr>
+    <tr><td>Illegal Gambling</td><td>{{ categories.illegal_gambling }}</td></tr>
+    <tr><td>Pyramid Scheme</td><td>{{ categories.pyramid_scheme }}</td></tr>
+    <tr><td>Investment Fraud</td><td>{{ categories.investment_fraud }}</td></tr>
+    <tr><td>Referral Scheme</td><td>{{ categories.referral_scheme }}</td></tr>
+  </table>
+  <h2>Top Flags</h2>
+  <table>
+    <tr><th>Signal</th><th>Weight</th></tr>
+    {% for flag in top_flags %}
+    <tr>
+      <td>{{ flag.signal }}</td>
+      <td class="weight-{{ flag.weight }}">{{ flag.weight | upper }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- ══════════════ FLAGGED KEYFRAMES ══════════════ -->
+{% if visual_markers %}
+<div class="section">
+  <h1>3. Flagged Keyframes</h1>
+  <div class="frames-grid">
+    {% for marker in visual_markers %}
+    <div class="frame-item">
+      {% if frames_b64[marker.frame_index] is defined %}
+      <img src="data:image/jpeg;base64,{{ frames_b64[marker.frame_index] }}" alt="Frame {{ marker.frame_index }}">
+      {% endif %}
+      <strong>Frame {{ marker.frame_index }}</strong> · {{ marker.category }}<br>
+      {{ marker.description }}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ══════════════ AUDIO TRANSCRIPT ══════════════ -->
+<div class="section">
+  <h1>4. Audio Transcript</h1>
+  <div class="transcript-block">
+    {% set flagged_texts = phrases | map(attribute='text') | list %}
+    {% for token in transcript_tokens %}
+      {% if token.text in flagged_texts %}
+        <span class="flagged" title="{{ (token.start_ms / 1000) | round(1) }}s">{{ token.text }}</span>
+      {% else %}
+        {{ token.text }}
+      {% endif %}
+    {% endfor %}
+  </div>
+  <h2>Flagged Phrases</h2>
+  <table>
+    <tr><th>Timestamp</th><th>Phrase</th><th>Category</th></tr>
+    {% for phrase in phrases %}
+    <tr>
+      <td>{{ phrase.timestamp_s }}s</td>
+      <td>{{ phrase.text }}</td>
+      <td>{{ phrase.category }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- ══════════════ TECHNICAL METADATA ══════════════ -->
+<div class="section">
+  <h1>5. Technical Metadata</h1>
+  <table>
+    <tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Source URL</td><td>{{ source_url }}</td></tr>
+    <tr><td>Platform</td><td>{{ platform }}</td></tr>
+    <tr><td>Soniox Job ID</td><td>{{ soniox_job_id }}</td></tr>
+    <tr><td>Gemini Pass-1 Request ID</td><td>{{ gemini_pass1_request_id }}</td></tr>
+    <tr><td>Gemini Pass-2 Request ID</td><td>{{ gemini_pass2_request_id }}</td></tr>
+    <tr><td>AI Model</td><td>gemini-2.0-flash / Soniox STT</td></tr>
+  </table>
+</div>
+
+<!-- ══════════════ CHAIN OF CUSTODY ══════════════ -->
+<div class="section">
+  <h1>6. Chain of Custody</h1>
+  <table class="custody-table">
+    <tr><th>Timestamp</th><th>Stage</th><th>Status</th></tr>
+    {% for entry in custody_log %}
+    <tr>
+      <td>{{ entry.timestamp }}</td>
+      <td>{{ entry.stage }}</td>
+      <td>{{ entry.status }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+</body>
+</html>

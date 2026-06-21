@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: oklch(0.62 0.22 290); /* Modern rich purple color */
+  --color-primary-hover: oklch(0.52 0.22 290);
+  --color-accent-red: oklch(0.60 0.20 25); /* High-risk indicator color */
+  --color-accent-amber: oklch(0.75 0.18 70); /* Medium-risk indicator color */
+  --color-accent-green: oklch(0.65 0.19 140); /* Low-risk indicator color */
+  
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}

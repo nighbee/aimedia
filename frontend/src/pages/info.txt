@@ -1,0 +1,1 @@
+Page components representing dashboard views (Job Queue, Job Details, Settings).
