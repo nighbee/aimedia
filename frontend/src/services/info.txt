@@ -1,1 +1,0 @@
-API client library to interact with Go API Gateway endpoints.
