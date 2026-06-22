@@ -1,20 +1,20 @@
-FROM python:3.11-slim
+FROM python:3.11.11-slim
 
-# Install system dependencies: FFmpeg, WeasyPrint (Pango, Cairo, GDK-Pixbuf), yt-dlp
-RUN apt-get update && apt-get install -y \
+# Install system dependencies for FFmpeg, WeasyPrint, and yt-dlp
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-0 \
     libcairo2 \
     shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Python dependencies
+# Install Python dependencies (no cache to keep layer small)
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --no-compile -r requirements.txt
 
 COPY . .
 

@@ -13,15 +13,11 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o main ./cmd/server
 
-# Execution stage
-FROM alpine:latest
+# Execution stage — distroless static (zero shell/packages, ~2MB)
+FROM gcr.io/distroless/static-debian12:nonroot
 
-RUN apk add --no-cache ca-certificates tzdata
-
-WORKDIR /app
-
-COPY --from=builder /app/main .
+COPY --from=builder /app/main /main
 
 EXPOSE 8080
 
-CMD ["./main"]
+ENTRYPOINT ["/main"]

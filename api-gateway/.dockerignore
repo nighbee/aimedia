@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Go
+*.exe
+*.out
+*.test
+*.test.exe
+main
+vendor/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Plan / docs
+plan.txt
