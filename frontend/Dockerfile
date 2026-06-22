@@ -1,9 +1,9 @@
 # Stage 1: Build React Frontend
-FROM node:20.18-alpine3.20 AS build
+FROM node:20.18-bookworm-slim AS build
 
 WORKDIR /app
 
-# Cache npm dependencies (no lockfile — let npm resolve platform bindings for Alpine)
+# Cache npm dependencies
 COPY package.json ./
 RUN npm install && npm cache clean --force
 
