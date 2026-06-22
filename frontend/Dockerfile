@@ -1,11 +1,11 @@
 # Stage 1: Build React Frontend
-FROM node:20.18-bookworm-slim AS build
+FROM node:22.12-bookworm-slim AS build
 
 WORKDIR /app
 
-# Cache npm dependencies
-COPY package.json ./
-RUN npm install && npm cache clean --force
+# Cache npm dependencies from the lockfile so the correct native packages are installed
+COPY package.json package-lock.json ./
+RUN npm ci && npm cache clean --force
 
 COPY . .
 RUN npm run build
