@@ -89,24 +89,25 @@ Config.HAS_STT_PROVIDER = Config.HAS_SONIOX or Config.HAS_GROQ
 Config.HAS_LLM_PROVIDER = Config.HAS_GEMINI or Config.HAS_BLACKBOX
 
 
-@classmethod
-def validate(cls):
+def _validate():
     print("--- Config Validation ---")
-    print(f"KAFKA_BROKERS: {cls.KAFKA_BROKERS}")
-    print(f"KAFKA_GROUP_ID: {cls.KAFKA_GROUP_ID}")
-    print(f"GO_API_BASE_URL: {cls.GO_API_BASE_URL}")
-    print(f"GO_API_INTERNAL_TOKEN set: {bool(cls.GO_API_INTERNAL_TOKEN)}")
-    print(f"SONIOX_API_KEY set: {bool(cls.SONIOX_API_KEY and cls.SONIOX_API_KEY != 'mock_key')}")
-    print(f"GROQ_API_KEY set: {bool(cls.GROQ_API_KEY and cls.GROQ_API_KEY != 'mock_key')}")
-    print(f"GEMINI_API_KEY set: {bool(cls.GEMINI_API_KEY and cls.GEMINI_API_KEY != 'mock_key')}")
-    print(f"BLACKBOX_API_KEY set: {bool(cls.BLACKBOX_API_KEY and cls.BLACKBOX_API_KEY != 'mock_key')}")
-    print(f"S3_ENDPOINT: {cls.S3_ENDPOINT}")
-    print(f"S3_BUCKET_NAME: {cls.S3_BUCKET_NAME}")
-    print(f"TMP_DIR: {cls.TMP_DIR}")
-    print(f"STT provider available: {cls.HAS_STT_PROVIDER}")
-    print(f"LLM provider available: {cls.HAS_LLM_PROVIDER}")
-    print(f"MOCK MODE ACTIVE: {cls.IS_MOCK_MODE}")
+    print(f"KAFKA_BROKERS: {Config.KAFKA_BROKERS}")
+    print(f"KAFKA_GROUP_ID: {Config.KAFKA_GROUP_ID}")
+    print(f"GO_API_BASE_URL: {Config.GO_API_BASE_URL}")
+    print(f"GO_API_INTERNAL_TOKEN set: {bool(Config.GO_API_INTERNAL_TOKEN)}")
+    print(f"SONIOX_API_KEY set: {bool(Config.SONIOX_API_KEY and Config.SONIOX_API_KEY != 'mock_key')}")
+    print(f"GROQ_API_KEY set: {bool(Config.GROQ_API_KEY and Config.GROQ_API_KEY != 'mock_key')}")
+    print(f"GEMINI_API_KEY set: {bool(Config.GEMINI_API_KEY and Config.GEMINI_API_KEY != 'mock_key')}")
+    print(f"BLACKBOX_API_KEY set: {bool(Config.BLACKBOX_API_KEY and Config.BLACKBOX_API_KEY != 'mock_key')}")
+    print(f"S3_ENDPOINT: {Config.S3_ENDPOINT}")
+    print(f"S3_BUCKET_NAME: {Config.S3_BUCKET_NAME}")
+    print(f"TMP_DIR: {Config.TMP_DIR}")
+    print(f"STT provider available: {Config.HAS_STT_PROVIDER}")
+    print(f"LLM provider available: {Config.HAS_LLM_PROVIDER}")
+    print(f"MOCK MODE ACTIVE: {Config.IS_MOCK_MODE}")
+    print(f"OLLAMA_URL: {Config.OLLAMA_URL}")
+    print(f"COBALT_API_URL: {Config.COBALT_API_URL}")
     print("------------------------------------")
 
 
-Config.validate = validate
+Config.validate = _validate

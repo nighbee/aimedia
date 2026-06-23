@@ -9,6 +9,7 @@ Falls back to deterministic mock output when GEMINI_API_KEY is not set.
 """
 import base64
 import json
+import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -17,6 +18,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.analyzer.blackbox_client import BlackboxClient
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 # ─── Validated data models ─────────────────────────────────────────────────────
@@ -147,8 +150,9 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
             try:
                 from google import genai
                 self._client = genai.Client(api_key=Config.GEMINI_API_KEY)
+                logger.info("[Gemini] Client initialized with API key")
             except ImportError:
-                print("[WARN] google-genai package not installed. Will use fallback providers.")
+                logger.warning("[WARN] google-genai package not installed. Will use fallback providers.")
 
     def _use_blackbox(self) -> bool:
         return self._blackbox_client.is_available()
@@ -187,7 +191,7 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         try:
             req_id, raw = self._call_with_retry(self.PASS1_SYSTEM_PROMPT, contents)
         except Exception:
-            print("[Gemini] Pass 1 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
+            logger.warning("[Gemini] Pass 1 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
             if self._use_blackbox():
                 return self._blackbox_pass1(transcript_text, keyframe_paths)
             if self._use_ollama():
@@ -254,7 +258,7 @@ If nothing suspicious is found, return empty arrays."""
             try:
                 req_id, raw = self._call_with_retry(system_prompt, contents)
             except Exception:
-                print("[Gemini] Visual scan retries exhausted.")
+                logger.warning("[Gemini] Visual scan retries exhausted.")
                 return [], [], "visual-scan-failed"
 
             data = self._parse_json(raw)
@@ -291,7 +295,7 @@ If nothing suspicious is found, return empty phrases array."""
             try:
                 req_id, raw = self._call_with_retry(system_prompt, contents)
             except Exception:
-                print("[Gemini] Audio scan retries exhausted.")
+                logger.warning("[Gemini] Audio scan retries exhausted.")
                 return [], "audio-scan-failed"
 
             data = self._parse_json(raw)
@@ -313,7 +317,7 @@ If nothing suspicious is found, return empty phrases array."""
             phrases, audio_req_id = audio_future.result()
 
         merged_req_id = f"v:{visual_req_id}+a:{audio_req_id}"
-        print(f"[Gemini] Parallel Pass 1 complete: {len(phrases)} phrases, {len(markers)} markers")
+        logger.info(f"[Gemini] Parallel Pass 1 complete: {len(phrases)} phrases, {len(markers)} markers")
 
         return SignalExtractionResult(
             phrases=phrases,
@@ -344,7 +348,7 @@ If nothing suspicious is found, return empty phrases array."""
         try:
             req_id, raw = self._call_with_retry(self.PASS2_SYSTEM_PROMPT, contents)
         except Exception:
-            print("[Gemini] Pass 2 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
+            logger.warning("[Gemini] Pass 2 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
             if self._use_blackbox():
                 return self._blackbox_pass2(signals)
             if self._use_ollama():
@@ -470,10 +474,10 @@ If nothing suspicious is found, return empty phrases array."""
                 last_error = e
                 if attempt < max_retries - 1:
                     wait = base_backoff ** attempt
-                    print(f"[Gemini] API error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait}s …")
+                    logger.info(f"[Gemini] API error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait}s …")
                     time.sleep(wait)
                 else:
-                    print(f"[Gemini] All {max_retries} attempts exhausted. Last error: {e}")
+                    logger.error(f"[Gemini] All {max_retries} attempts exhausted. Last error: {e}")
 
         raise RuntimeError(f"Gemini API call failed after {max_retries} attempts") from last_error
 
@@ -559,7 +563,7 @@ If nothing suspicious is found, return empty phrases array."""
                     "inline_data": {"mime_type": "image/jpeg", "data": b64}
                 })
             except Exception as e:
-                print(f"[Gemini] Could not encode frame {path}: {e}")
+                logger.warning(f"[Gemini] Could not encode frame {path}: {e}")
         return contents
 
     @staticmethod
@@ -572,14 +576,14 @@ If nothing suspicious is found, return empty phrases array."""
         try:
             return json.loads(raw)
         except json.JSONDecodeError as e:
-            print(f"[Gemini] JSON parse error: {e}. Raw: {raw[:200]}")
+            logger.warning(f"[Gemini] JSON parse error: {e}. Raw: {raw[:200]}")
             return {}
 
     # ── Mock helpers ────────────────────────────────────────────────────────────
 
     @staticmethod
     def _mock_pass1() -> SignalExtractionResult:
-        print("[MOCK] Returning mock Pass-1 signal extraction result.")
+        logger.info("[MOCK] Returning mock Pass-1 signal extraction result.")
         return SignalExtractionResult(
             phrases=[
                 FlaggedPhrase(text="guaranteed 100% income", timestamp_s=12, category="investment_fraud"),
@@ -598,7 +602,7 @@ If nothing suspicious is found, return empty phrases array."""
 
     @staticmethod
     def _mock_pass2() -> RiskScoringResult:
-        print("[MOCK] Returning mock Pass-2 risk scoring result.")
+        logger.info("[MOCK] Returning mock Pass-2 risk scoring result.")
         return RiskScoringResult(
             risk_score=88,
             confidence="high",

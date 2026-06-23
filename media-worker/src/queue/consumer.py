@@ -10,12 +10,15 @@ Message schema (JSON):
   }
 """
 import json
+import logging
 from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class JobMessage(BaseModel):
@@ -59,12 +62,12 @@ class JobConsumer:
                 "enable.auto.commit": False,
             })
             self._consumer.subscribe([Config.KAFKA_TOPIC_JOB_CREATED])
-            print(f"[Kafka Consumer] Subscribed to {Config.KAFKA_TOPIC_JOB_CREATED} @ {Config.KAFKA_BROKERS} (group={Config.KAFKA_GROUP_ID})")
+            logger.info(f"[Kafka Consumer] Subscribed to {Config.KAFKA_TOPIC_JOB_CREATED} @ {Config.KAFKA_BROKERS} (group={Config.KAFKA_GROUP_ID})")
         except ImportError:
-            print("[WARN] confluent-kafka not installed. Kafka consumer disabled.")
+            logger.warning("[WARN] confluent-kafka not installed. Kafka consumer disabled.")
             self._mock = True
         except Exception as e:
-            print(f"[WARN] Kafka connection failed: {e}. Consumer disabled.")
+            logger.warning(f"[WARN] Kafka connection failed: {e}. Consumer disabled.")
             self._mock = True
 
     def poll(self, timeout_s: float = 5.0) -> Optional[dict]:
@@ -84,25 +87,26 @@ class JobConsumer:
         if msg.error():
             if msg.error().code() == KafkaError._PARTITION_EOF:
                 return None
+            logger.error(f"[Kafka Consumer] Error: {msg.error()}")
             raise RuntimeError(f"Kafka consumer error: {msg.error()}")
 
         raw = msg.value()
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            print(f"[Kafka Consumer] Malformed message (invalid JSON), skipping: {e}")
+            logger.warning(f"[Kafka Consumer] Malformed message (invalid JSON), skipping: {e}")
             self._consumer.commit(msg)
             return None
 
         try:
             validated = JobMessage(**payload)
         except Exception as e:
-            print(f"[Kafka Consumer] Message validation failed, skipping: {e}")
+            logger.warning(f"[Kafka Consumer] Message validation failed, skipping: {e}")
             self._consumer.commit(msg)
             return None
 
         self._consumer.commit(msg)
-        print(f"[Kafka Consumer] Received job: {validated.job_id}")
+        logger.info(f"[Kafka Consumer] Received job: {validated.job_id} url={validated.url[:80]}")
         return validated.model_dump()
 
     def close(self):

@@ -19,9 +19,12 @@ The evidence_url is stored as an S3 object path so the Go API can
 regenerate a fresh presigned URL on each evidence download request.
 """
 import json
+import logging
 from typing import Optional
 
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class JobProducer:
@@ -35,11 +38,11 @@ class JobProducer:
                 "bootstrap.servers": Config.KAFKA_BROKERS,
                 "acks": "all",
             })
-            print(f"[Kafka Producer] Ready → {Config.KAFKA_TOPIC_JOB_COMPLETED} @ {Config.KAFKA_BROKERS}")
+            logger.info(f"[Kafka Producer] Ready → {Config.KAFKA_TOPIC_JOB_COMPLETED} @ {Config.KAFKA_BROKERS}")
         except ImportError:
-            print("[WARN] confluent-kafka not installed. Kafka producer disabled.")
+            logger.warning("[WARN] confluent-kafka not installed. Kafka producer disabled.")
         except Exception as e:
-            print(f"[WARN] Kafka connection failed: {e}. Producer disabled.")
+            logger.warning(f"[WARN] Kafka connection failed: {e}. Producer disabled.")
 
     def publish_completed(
         self,
@@ -88,14 +91,14 @@ class JobProducer:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
         if self._producer is None:
-            print(f"[Kafka Producer] No producer available, discarding message for {job_id}")
+            logger.warning(f"[Kafka Producer] No producer available, discarding message for {job_id}")
             return
 
         def _delivery_report(err, msg):
             if err:
-                print(f"[Kafka Producer] Delivery failed for {job_id}: {err}")
+                logger.error(f"[Kafka Producer] Delivery FAILED for {job_id}: {err}")
             else:
-                print(f"[Kafka Producer] Delivered {job_id} → partition {msg.partition()} @ offset {msg.offset()}")
+                logger.info(f"[Kafka Producer] Delivered {job_id} → partition {msg.partition()} @ offset {msg.offset()}")
 
         self._producer.produce(
             Config.KAFKA_TOPIC_JOB_COMPLETED,

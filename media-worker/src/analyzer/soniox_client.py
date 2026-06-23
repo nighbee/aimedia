@@ -3,12 +3,15 @@ Soniox Speech-to-Text Client
 Supports KZ/RU code-switched transcription.
 Fallback chain: Soniox → Groq → Whisper (local) → Mock
 """
+import logging
 from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class TranscriptToken(BaseModel):
@@ -35,7 +38,7 @@ class SonioxClient:
                 from soniox import SonioxClient as _SonioxClient
                 self._client = _SonioxClient()
             except ImportError:
-                print("[WARN] soniox package not installed. Will use fallback STT provider if available.")
+                logger.warning("[WARN] soniox package not installed. Will use fallback STT provider if available.")
 
     def _fallback_transcribe(self, audio_path: str) -> TranscriptResult:
         # Layer 1: Groq API
@@ -44,13 +47,13 @@ class SonioxClient:
                 from src.analyzer.groq_client import GroqClient
                 self._groq_client = GroqClient()
             except Exception as e:
-                print(f"[Groq STT] Client init failed: {e}")
+                logger.warning(f"[Groq STT] Client init failed: {e}")
 
         if self._groq_client is not None and self._groq_client.is_available():
             try:
                 return self._groq_client.transcribe(audio_path)
             except Exception as e:
-                print(f"[Groq STT] API call failed: {e}")
+                logger.warning(f"[Groq STT] API call failed: {e}")
 
         # Layer 2: Local Whisper (no API key needed)
         if self._whisper_client is None:
@@ -58,7 +61,7 @@ class SonioxClient:
                 from src.analyzer.whisper_client import WhisperClient
                 self._whisper_client = WhisperClient()
             except Exception as e:
-                print(f"[Whisper] Client init failed: {e}")
+                logger.warning(f"[Whisper] Client init failed: {e}")
 
         if self._whisper_client is not None:
             try:
@@ -78,7 +81,7 @@ class SonioxClient:
                     soniox_job_id=f"whisper-{wt.whisper_model}",
                 )
             except Exception as e:
-                print(f"[Whisper] Local transcription failed: {e}")
+                logger.warning(f"[Whisper] Local transcription failed: {e}")
 
         # Layer 3: Mock (last resort)
         return self._mock_transcription(audio_path)
@@ -91,7 +94,7 @@ class SonioxClient:
         if self._client is None:
             return self._fallback_transcribe(audio_path)
 
-        print(f"[Soniox] Transcribing audio: {audio_path}")
+        logger.info(f"[Soniox] Transcribing audio: {audio_path}")
         try:
             transcript = self._client.stt.transcribe_and_wait_with_tokens(
                 file=audio_path,
@@ -119,7 +122,7 @@ class SonioxClient:
             )
 
         except Exception as e:
-            print(f"[Soniox] API call failed: {e}. Falling back to Groq or mock transcript.")
+            logger.warning(f"[Soniox] API call failed: {e}. Falling back to Groq or mock transcript.")
             return self._fallback_transcribe(audio_path)
 
     def close(self):
@@ -131,7 +134,7 @@ class SonioxClient:
 
     @staticmethod
     def _mock_transcription(audio_path: str) -> TranscriptResult:
-        print(f"[MOCK] Generating mock transcript for: {audio_path}")
+        logger.info(f"[MOCK] Generating mock transcript for: {audio_path}")
         mock_tokens = [
             TranscriptToken(text="Сіздің", start_ms=0, end_ms=500, confidence=0.95, language="kk"),
             TranscriptToken(text="инвестицияңыз", start_ms=500, end_ms=1200, confidence=0.93, language="kk"),

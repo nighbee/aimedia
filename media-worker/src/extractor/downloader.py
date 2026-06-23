@@ -1,9 +1,12 @@
+import logging
 import os
 import shutil
 import time
 import requests
 import yt_dlp
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class VideoDownloader:
