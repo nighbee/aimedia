@@ -32,7 +32,7 @@ type Job struct {
 	CustodyLog    interface{} `json:"custody_log,omitempty" db:"custody_log"`
 	FailedAtStage *string    `json:"failed_at_stage,omitempty" db:"failed_at_stage"`
 	RetryCount    int        `json:"retry_count" db:"retry_count"`
-	InspectorID   uuid.UUID  `json:"inspector_id" db:"inspector_id"`
+	InspectorID   *uuid.UUID `json:"inspector_id,omitempty" db:"inspector_id"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 	CompletedAt   *time.Time `json:"completed_at,omitempty" db:"completed_at"`

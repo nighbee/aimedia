@@ -64,7 +64,7 @@ func NewJobService(
 	}
 }
 
-func (s *jobService) SubmitJob(ctx context.Context, req model.CreateJobRequest, inspectorID uuid.UUID) (*model.Job, error) {
+func (s *jobService) SubmitJob(ctx context.Context, req model.CreateJobRequest, inspectorID *uuid.UUID) (*model.Job, error) {
 	urlStr := strings.TrimSpace(req.URL)
 	if urlStr == "" {
 		return nil, ErrInvalidURL
@@ -114,7 +114,12 @@ func (s *jobService) SubmitJob(ctx context.Context, req model.CreateJobRequest, 
 		return nil, errors.New("failed to create job")
 	}
 
-	if err := s.producer.PublishJobCreated(ctx, job.ID.String(), job.URL, job.Platform, inspectorID.String(), priority); err != nil {
+	inspectorStr := ""
+	if inspectorID != nil {
+		inspectorStr = inspectorID.String()
+	}
+
+	if err := s.producer.PublishJobCreated(ctx, job.ID.String(), job.URL, job.Platform, inspectorStr, priority); err != nil {
 		s.logger.Error("failed to publish job.created event",
 			zap.String("job_id", job.ID.String()),
 			zap.Error(err),

@@ -36,8 +36,13 @@ func (r *JobRepository) Create(ctx context.Context, job *model.Job) error {
 	job.CreatedAt = now
 	job.UpdatedAt = now
 
+	var inspectorID interface{}
+	if job.InspectorID != nil {
+		inspectorID = *job.InspectorID
+	}
+
 	_, err := r.pool.Exec(ctx, query,
-		job.ID, job.URL, job.Platform, job.Status, job.Priority, job.InspectorID, job.CreatedAt, job.UpdatedAt,
+		job.ID, job.URL, job.Platform, job.Status, job.Priority, inspectorID, job.CreatedAt, job.UpdatedAt,
 	)
 	return err
 }

@@ -12,8 +12,6 @@ import (
 	"github.com/aimedia/api-gateway/internal/service"
 )
 
-var anonymousInspectorID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
-
 // SubmitJob handles POST /api/v1/jobs (no auth required)
 func (h *Handler) SubmitJob(c *fiber.Ctx) error {
 	var req model.CreateJobRequest
@@ -22,11 +20,12 @@ func (h *Handler) SubmitJob(c *fiber.Ctx) error {
 	}
 
 	inspectorID, _ := c.Locals("inspector_id").(uuid.UUID)
-	if inspectorID == uuid.Nil {
-		inspectorID = anonymousInspectorID
+	var ptrInspectorID *uuid.UUID
+	if inspectorID != uuid.Nil {
+		ptrInspectorID = &inspectorID
 	}
 
-	job, err := h.jobService.SubmitJob(c.Context(), req, inspectorID)
+	job, err := h.jobService.SubmitJob(c.Context(), req, ptrInspectorID)
 	if err != nil {
 		h.logger.Warn("job submission failed", zap.Error(err))
 		switch {

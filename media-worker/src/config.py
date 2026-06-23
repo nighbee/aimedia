@@ -63,37 +63,50 @@ class Config:
     USE_SCENE_DETECTION = os.getenv("USE_SCENE_DETECTION", "false").lower() == "true"
     USE_PARALLEL_PASS1 = os.getenv("USE_PARALLEL_PASS1", "true").lower() == "true"
 
-    # Mode determination
-    IS_MOCK_MODE = (
-        (not SONIOX_API_KEY or SONIOX_API_KEY == "mock_key")
-        and (not GROQ_API_KEY or GROQ_API_KEY == "mock_key")
-        and (not GEMINI_API_KEY or GEMINI_API_KEY == "mock_key")
-        and (not BLACKBOX_API_KEY or BLACKBOX_API_KEY == "mock_key")
-    )
 
-    HAS_SONIOX = bool(SONIOX_API_KEY and SONIOX_API_KEY != "mock_key")
-    HAS_GROQ = bool(GROQ_API_KEY and GROQ_API_KEY != "mock_key")
-    HAS_GEMINI = bool(GEMINI_API_KEY and GEMINI_API_KEY != "mock_key")
-    HAS_BLACKBOX = bool(BLACKBOX_API_KEY and BLACKBOX_API_KEY != "mock_key")
+def _is_mock_mode() -> bool:
+    """Determine if all external AI providers are unavailable or set to mock."""
+    keys = [
+        Config.SONIOX_API_KEY,
+        Config.GROQ_API_KEY,
+        Config.GEMINI_API_KEY,
+        Config.BLACKBOX_API_KEY,
+    ]
+    return all(not k or k == "mock_key" for k in keys)
 
-    HAS_STT_PROVIDER = HAS_SONIOX or HAS_GROQ
-    HAS_LLM_PROVIDER = HAS_GEMINI or HAS_BLACKBOX
 
-    @classmethod
-    def validate(cls):
-        print("--- Config Validation ---")
-        print(f"KAFKA_BROKERS: {cls.KAFKA_BROKERS}")
-        print(f"KAFKA_GROUP_ID: {cls.KAFKA_GROUP_ID}")
-        print(f"GO_API_BASE_URL: {cls.GO_API_BASE_URL}")
-        print(f"GO_API_INTERNAL_TOKEN set: {bool(cls.GO_API_INTERNAL_TOKEN)}")
-        print(f"SONIOX_API_KEY set: {bool(cls.SONIOX_API_KEY and cls.SONIOX_API_KEY != 'mock_key')}")
-        print(f"GROQ_API_KEY set: {bool(cls.GROQ_API_KEY and cls.GROQ_API_KEY != 'mock_key')}")
-        print(f"GEMINI_API_KEY set: {bool(cls.GEMINI_API_KEY and cls.GEMINI_API_KEY != 'mock_key')}")
-        print(f"BLACKBOX_API_KEY set: {bool(cls.BLACKBOX_API_KEY and cls.BLACKBOX_API_KEY != 'mock_key')}")
-        print(f"S3_ENDPOINT: {cls.S3_ENDPOINT}")
-        print(f"S3_BUCKET_NAME: {cls.S3_BUCKET_NAME}")
-        print(f"TMP_DIR: {cls.TMP_DIR}")
-        print(f"STT provider available: {cls.HAS_STT_PROVIDER}")
-        print(f"LLM provider available: {cls.HAS_LLM_PROVIDER}")
-        print(f"MOCK MODE ACTIVE: {cls.IS_MOCK_MODE}")
-        print("------------------------------------")
+def _has_provider(key: str) -> bool:
+    return bool(key and key != "mock_key")
+
+
+# Derived flags (computed at import time after all env vars are loaded)
+Config.IS_MOCK_MODE = _is_mock_mode()
+Config.HAS_SONIOX = _has_provider(Config.SONIOX_API_KEY)
+Config.HAS_GROQ = _has_provider(Config.GROQ_API_KEY)
+Config.HAS_GEMINI = _has_provider(Config.GEMINI_API_KEY)
+Config.HAS_BLACKBOX = _has_provider(Config.BLACKBOX_API_KEY)
+Config.HAS_STT_PROVIDER = Config.HAS_SONIOX or Config.HAS_GROQ
+Config.HAS_LLM_PROVIDER = Config.HAS_GEMINI or Config.HAS_BLACKBOX
+
+
+@classmethod
+def validate(cls):
+    print("--- Config Validation ---")
+    print(f"KAFKA_BROKERS: {cls.KAFKA_BROKERS}")
+    print(f"KAFKA_GROUP_ID: {cls.KAFKA_GROUP_ID}")
+    print(f"GO_API_BASE_URL: {cls.GO_API_BASE_URL}")
+    print(f"GO_API_INTERNAL_TOKEN set: {bool(cls.GO_API_INTERNAL_TOKEN)}")
+    print(f"SONIOX_API_KEY set: {bool(cls.SONIOX_API_KEY and cls.SONIOX_API_KEY != 'mock_key')}")
+    print(f"GROQ_API_KEY set: {bool(cls.GROQ_API_KEY and cls.GROQ_API_KEY != 'mock_key')}")
+    print(f"GEMINI_API_KEY set: {bool(cls.GEMINI_API_KEY and cls.GEMINI_API_KEY != 'mock_key')}")
+    print(f"BLACKBOX_API_KEY set: {bool(cls.BLACKBOX_API_KEY and cls.BLACKBOX_API_KEY != 'mock_key')}")
+    print(f"S3_ENDPOINT: {cls.S3_ENDPOINT}")
+    print(f"S3_BUCKET_NAME: {cls.S3_BUCKET_NAME}")
+    print(f"TMP_DIR: {cls.TMP_DIR}")
+    print(f"STT provider available: {cls.HAS_STT_PROVIDER}")
+    print(f"LLM provider available: {cls.HAS_LLM_PROVIDER}")
+    print(f"MOCK MODE ACTIVE: {cls.IS_MOCK_MODE}")
+    print("------------------------------------")
+
+
+Config.validate = validate
