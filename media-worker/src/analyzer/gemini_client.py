@@ -142,15 +142,26 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
     def __init__(self):
         self._client = None
         self._blackbox_client = BlackboxClient()
+        self._ollama_client = None
         if getattr(Config, "HAS_GEMINI", False):
             try:
                 from google import genai
                 self._client = genai.Client(api_key=Config.GEMINI_API_KEY)
             except ImportError:
-                print("[WARN] google-genai package not installed. Will use Blackbox fallback if available.")
+                print("[WARN] google-genai package not installed. Will use fallback providers.")
 
     def _use_blackbox(self) -> bool:
         return self._blackbox_client.is_available()
+
+    def _use_ollama(self) -> bool:
+        if self._ollama_client is not None:
+            return self._ollama_client.is_available()
+        try:
+            from src.analyzer.ollama_client import OllamaClient
+            self._ollama_client = OllamaClient()
+            return self._ollama_client.is_available()
+        except Exception:
+            return False
 
     def pass1_extract_signals(
         self,
@@ -158,7 +169,7 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         keyframe_paths: list[str],
     ) -> SignalExtractionResult:
         """Pass 1: extract fraud signals from keyframes + transcript."""
-        if self._client is None and not self._use_blackbox():
+        if self._client is None and not self._use_blackbox() and not self._use_ollama():
             return self._mock_pass1()
 
         if self._client is None and self._use_blackbox():
@@ -176,9 +187,11 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         try:
             req_id, raw = self._call_with_retry(self.PASS1_SYSTEM_PROMPT, contents)
         except Exception:
-            print("[Gemini] Pass 1 all retries exhausted. Falling back to Blackbox or mock output.")
+            print("[Gemini] Pass 1 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
             if self._use_blackbox():
                 return self._blackbox_pass1(transcript_text, keyframe_paths)
+            if self._use_ollama():
+                return self._ollama_pass1(transcript_text, keyframe_paths)
             return self._mock_pass1()
 
         data = self._parse_json(raw)
@@ -311,7 +324,7 @@ If nothing suspicious is found, return empty phrases array."""
 
     def pass2_score_risk(self, signals: SignalExtractionResult) -> RiskScoringResult:
         """Pass 2: score risk from extracted signals."""
-        if self._client is None and not self._use_blackbox():
+        if self._client is None and not self._use_blackbox() and not self._use_ollama():
             return self._mock_pass2()
 
         if self._client is None and self._use_blackbox():
@@ -331,9 +344,11 @@ If nothing suspicious is found, return empty phrases array."""
         try:
             req_id, raw = self._call_with_retry(self.PASS2_SYSTEM_PROMPT, contents)
         except Exception:
-            print("[Gemini] Pass 2 all retries exhausted. Falling back to Blackbox or mock output.")
+            print("[Gemini] Pass 2 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
             if self._use_blackbox():
                 return self._blackbox_pass2(signals)
+            if self._use_ollama():
+                return self._ollama_pass2(signals)
             return self._mock_pass2()
 
         data = self._parse_json(raw)
@@ -343,6 +358,75 @@ If nothing suspicious is found, return empty phrases array."""
             for f in data.get("top_flags", [])
         ]
 
+        return RiskScoringResult(
+            risk_score=int(data.get("risk_score", 0)),
+            confidence=data.get("confidence", "low"),
+            categories={
+                "illegal_gambling": int(data.get("categories", {}).get("illegal_gambling", 0)),
+                "pyramid_scheme": int(data.get("categories", {}).get("pyramid_scheme", 0)),
+                "investment_fraud": int(data.get("categories", {}).get("investment_fraud", 0)),
+                "referral_scheme": int(data.get("categories", {}).get("referral_scheme", 0)),
+            },
+            reasoning=data.get("reasoning", ""),
+            top_flags=top_flags,
+            gemini_pass2_request_id=req_id,
+        )
+
+    def _ollama_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
+        user_prompt = (
+            "TRANSCRIPT:\n"
+            f"{transcript_text}\n\n"
+            f"KEYFRAMES: {len(keyframe_paths)} image(s) available, but local LLM is text-only. "
+            "Use the transcript to extract fraud signals. Return ONLY JSON."
+        )
+        req_id, raw = self._ollama_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
+        data = self._parse_json(raw)
+        phrases = [
+            FlaggedPhrase(
+                text=p.get("text", ""),
+                timestamp_s=int(p.get("timestamp_s", 0)),
+                category=p.get("category", "other"),
+            )
+            for p in data.get("phrases", [])
+        ]
+        visual_markers = [
+            VisualMarker(
+                frame_index=int(v.get("frame_index", 0)),
+                description=v.get("description", ""),
+                category=v.get("category", "other"),
+            )
+            for v in data.get("visual_markers", [])
+        ]
+        entities = [
+            DetectedEntity(
+                name=e.get("name", ""),
+                entity_type=e.get("type", "brand"),
+            )
+            for e in data.get("entities", [])
+        ]
+        return SignalExtractionResult(
+            phrases=phrases,
+            visual_markers=visual_markers,
+            entities=entities,
+            gemini_pass1_request_id=req_id,
+        )
+
+    def _ollama_pass2(self, signals: SignalExtractionResult) -> RiskScoringResult:
+        signals_payload = {
+            "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
+            "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
+            "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
+        }
+        user_prompt = (
+            f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
+            "Score the risk per the schema and return ONLY JSON."
+        )
+        req_id, raw = self._ollama_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
+        data = self._parse_json(raw)
+        top_flags = [
+            TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
+            for f in data.get("top_flags", [])
+        ]
         return RiskScoringResult(
             risk_score=int(data.get("risk_score", 0)),
             confidence=data.get("confidence", "low"),

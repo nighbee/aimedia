@@ -37,6 +37,13 @@ class Config:
     COBALT_API_URL = os.getenv("COBALT_API_URL", "").rstrip("/")
     COBALT_API_KEY = os.getenv("COBALT_API_KEY", "")
 
+    # Local AI — Ollama
+    OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:1.5b")
+
+    # Local AI — Whisper
+    WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
+
     # yt-dlp cookies file (Netscape format)
     YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "")
 
