@@ -2,6 +2,7 @@
 Gemini 2.0 Flash Two-Pass Analysis Client
 
 Pass 1 — Signal Extraction:  keyframes + transcript  → fraud signals JSON
+  - Split into parallel sub-calls: visual scan + audio scan
 Pass 2 — Risk Scoring:       signals JSON            → risk score + categories JSON
 
 Falls back to deterministic mock output when GEMINI_API_KEY is not set.
@@ -10,6 +11,7 @@ import base64
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -210,6 +212,101 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
             visual_markers=visual_markers,
             entities=entities,
             gemini_pass1_request_id=req_id,
+        )
+
+    def pass1_extract_signals_parallel(
+        self,
+        transcript_text: str,
+        keyframe_paths: list[str],
+    ) -> SignalExtractionResult:
+        """Pass 1 split into two parallel sub-calls: visual scan + audio scan."""
+        if self._client is None and not self._use_blackbox():
+            return self._mock_pass1()
+
+        def _visual_scan() -> tuple[list[VisualMarker], list[DetectedEntity], str]:
+            system_prompt = """You are a fraud-signal extractor. Given ONLY video keyframes (no transcript), identify suspicious visual elements and return ONLY JSON.
+Schema:
+{
+  "visual_markers": [{"frame_index": int, "description": str, "category": str}],
+  "entities": [{"name": str, "type": "brand|person|platform"}]
+}
+Categories: illegal_gambling | pyramid_scheme | investment_fraud | referral_scheme | other
+If nothing suspicious is found, return empty arrays."""
+            contents = self._build_image_parts(keyframe_paths)
+            contents.append({
+                "role": "user",
+                "parts": [{"text": "Analyze these video keyframes for fraud-related visual signals. Return ONLY JSON."}]
+            })
+
+            try:
+                req_id, raw = self._call_with_retry(system_prompt, contents)
+            except Exception:
+                print("[Gemini] Visual scan retries exhausted.")
+                return [], [], "visual-scan-failed"
+
+            data = self._parse_json(raw)
+            markers = [
+                VisualMarker(
+                    frame_index=int(v.get("frame_index", 0)),
+                    description=v.get("description", ""),
+                    category=v.get("category", "other"),
+                )
+                for v in data.get("visual_markers", [])
+            ]
+            entities = [
+                DetectedEntity(
+                    name=e.get("name", ""),
+                    entity_type=e.get("type", "brand"),
+                )
+                for e in data.get("entities", [])
+            ]
+            return markers, entities, req_id
+
+        def _audio_scan() -> tuple[list[FlaggedPhrase], str]:
+            system_prompt = """You are a fraud-signal extractor. Given ONLY a video transcript (no images), identify suspicious spoken phrases and return ONLY JSON.
+Schema:
+{
+  "phrases": [{"text": str, "timestamp_s": int, "category": str}]
+}
+Categories: illegal_gambling | pyramid_scheme | investment_fraud | referral_scheme | other
+If nothing suspicious is found, return empty phrases array."""
+            contents = [{
+                "role": "user",
+                "parts": [{"text": f"TRANSCRIPT:\n{transcript_text}\n\nExtract fraud-related spoken phrases. Return ONLY JSON."}]
+            }]
+
+            try:
+                req_id, raw = self._call_with_retry(system_prompt, contents)
+            except Exception:
+                print("[Gemini] Audio scan retries exhausted.")
+                return [], "audio-scan-failed"
+
+            data = self._parse_json(raw)
+            phrases = [
+                FlaggedPhrase(
+                    text=p.get("text", ""),
+                    timestamp_s=int(p.get("timestamp_s", 0)),
+                    category=p.get("category", "other"),
+                )
+                for p in data.get("phrases", [])
+            ]
+            return phrases, req_id
+
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="gemini-pass1") as pool:
+            visual_future = pool.submit(_visual_scan)
+            audio_future = pool.submit(_audio_scan)
+
+            markers, entities, visual_req_id = visual_future.result()
+            phrases, audio_req_id = audio_future.result()
+
+        merged_req_id = f"v:{visual_req_id}+a:{audio_req_id}"
+        print(f"[Gemini] Parallel Pass 1 complete: {len(phrases)} phrases, {len(markers)} markers")
+
+        return SignalExtractionResult(
+            phrases=phrases,
+            visual_markers=markers,
+            entities=entities,
+            gemini_pass1_request_id=merged_req_id,
         )
 
     def pass2_score_risk(self, signals: SignalExtractionResult) -> RiskScoringResult:

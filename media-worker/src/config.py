@@ -52,6 +52,10 @@ class Config:
     GEMINI_MAX_RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "3"))
     GEMINI_RETRY_BACKOFF_BASE_SECONDS = int(os.getenv("GEMINI_RETRY_BACKOFF_BASE_SECONDS", "2"))
 
+    # Pipeline optimizations
+    USE_SCENE_DETECTION = os.getenv("USE_SCENE_DETECTION", "false").lower() == "true"
+    USE_PARALLEL_PASS1 = os.getenv("USE_PARALLEL_PASS1", "true").lower() == "true"
+
     # Mode determination
     IS_MOCK_MODE = (
         (not SONIOX_API_KEY or SONIOX_API_KEY == "mock_key")

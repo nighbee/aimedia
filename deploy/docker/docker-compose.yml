@@ -229,6 +229,9 @@ services:
       # Gemini rate limiting
       GEMINI_MAX_RETRIES: 3
       GEMINI_RETRY_BACKOFF_BASE_SECONDS: 2
+      # Pipeline optimizations
+      USE_SCENE_DETECTION: "false"
+      USE_PARALLEL_PASS1: "true"
     volumes:
       - /tmp/mediawatch-jobs:/tmp/mediawatch-jobs
     deploy:
