@@ -13,6 +13,7 @@ import time
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.analyzer.blackbox_client import BlackboxClient
 from src.config import Config
 
 
@@ -138,12 +139,16 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
 
     def __init__(self):
         self._client = None
-        if not Config.IS_MOCK_MODE:
+        self._blackbox_client = BlackboxClient()
+        if getattr(Config, "HAS_GEMINI", False):
             try:
                 from google import genai
                 self._client = genai.Client(api_key=Config.GEMINI_API_KEY)
             except ImportError:
-                print("[WARN] google-genai package not installed. Falling back to mock mode.")
+                print("[WARN] google-genai package not installed. Will use Blackbox fallback if available.")
+
+    def _use_blackbox(self) -> bool:
+        return self._blackbox_client.is_available()
 
     def pass1_extract_signals(
         self,
@@ -151,8 +156,11 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         keyframe_paths: list[str],
     ) -> SignalExtractionResult:
         """Pass 1: extract fraud signals from keyframes + transcript."""
-        if Config.IS_MOCK_MODE or self._client is None:
+        if self._client is None and not self._use_blackbox():
             return self._mock_pass1()
+
+        if self._client is None and self._use_blackbox():
+            return self._blackbox_pass1(transcript_text, keyframe_paths)
 
         # Build content parts: images then transcript
         contents = self._build_image_parts(keyframe_paths)
@@ -166,7 +174,9 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         try:
             req_id, raw = self._call_with_retry(self.PASS1_SYSTEM_PROMPT, contents)
         except Exception:
-            print("[Gemini] Pass 1 all retries exhausted. Falling back to mock output.")
+            print("[Gemini] Pass 1 all retries exhausted. Falling back to Blackbox or mock output.")
+            if self._use_blackbox():
+                return self._blackbox_pass1(transcript_text, keyframe_paths)
             return self._mock_pass1()
 
         data = self._parse_json(raw)
@@ -204,8 +214,11 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
 
     def pass2_score_risk(self, signals: SignalExtractionResult) -> RiskScoringResult:
         """Pass 2: score risk from extracted signals."""
-        if Config.IS_MOCK_MODE or self._client is None:
+        if self._client is None and not self._use_blackbox():
             return self._mock_pass2()
+
+        if self._client is None and self._use_blackbox():
+            return self._blackbox_pass2(signals)
 
         signals_payload = {
             "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
@@ -221,7 +234,9 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         try:
             req_id, raw = self._call_with_retry(self.PASS2_SYSTEM_PROMPT, contents)
         except Exception:
-            print("[Gemini] Pass 2 all retries exhausted. Falling back to mock output.")
+            print("[Gemini] Pass 2 all retries exhausted. Falling back to Blackbox or mock output.")
+            if self._use_blackbox():
+                return self._blackbox_pass2(signals)
             return self._mock_pass2()
 
         data = self._parse_json(raw)
@@ -281,6 +296,75 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
 
         raise RuntimeError(f"Gemini API call failed after {max_retries} attempts") from last_error
 
+    def _blackbox_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
+        user_prompt = (
+            "TRANSCRIPT:\n"
+            f"{transcript_text}\n\n"
+            f"KEYFRAMES: {len(keyframe_paths)} image(s) are available, but this fallback LLM is text-only. "
+            "Use the transcript and any obvious textual clues to extract fraud signals. Return ONLY JSON."
+        )
+        req_id, raw = self._blackbox_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
+        data = self._parse_json(raw)
+        phrases = [
+            FlaggedPhrase(
+                text=p.get("text", ""),
+                timestamp_s=int(p.get("timestamp_s", 0)),
+                category=p.get("category", "other"),
+            )
+            for p in data.get("phrases", [])
+        ]
+        visual_markers = [
+            VisualMarker(
+                frame_index=int(v.get("frame_index", 0)),
+                description=v.get("description", ""),
+                category=v.get("category", "other"),
+            )
+            for v in data.get("visual_markers", [])
+        ]
+        entities = [
+            DetectedEntity(
+                name=e.get("name", ""),
+                entity_type=e.get("type", "brand"),
+            )
+            for e in data.get("entities", [])
+        ]
+        return SignalExtractionResult(
+            phrases=phrases,
+            visual_markers=visual_markers,
+            entities=entities,
+            gemini_pass1_request_id=req_id,
+        )
+
+    def _blackbox_pass2(self, signals: SignalExtractionResult) -> RiskScoringResult:
+        signals_payload = {
+            "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
+            "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
+            "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
+        }
+        user_prompt = (
+            f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
+            "Score the risk per the schema and return ONLY JSON."
+        )
+        req_id, raw = self._blackbox_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
+        data = self._parse_json(raw)
+        top_flags = [
+            TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
+            for f in data.get("top_flags", [])
+        ]
+        return RiskScoringResult(
+            risk_score=int(data.get("risk_score", 0)),
+            confidence=data.get("confidence", "low"),
+            categories={
+                "illegal_gambling": int(data.get("categories", {}).get("illegal_gambling", 0)),
+                "pyramid_scheme": int(data.get("categories", {}).get("pyramid_scheme", 0)),
+                "investment_fraud": int(data.get("categories", {}).get("investment_fraud", 0)),
+                "referral_scheme": int(data.get("categories", {}).get("referral_scheme", 0)),
+            },
+            reasoning=data.get("reasoning", ""),
+            top_flags=top_flags,
+            gemini_pass2_request_id=req_id,
+        )
+
     def _build_image_parts(self, keyframe_paths: list[str]) -> list:
         """Encode up to 20 keyframes as base64 inline images."""
         contents = [{"role": "user", "parts": []}]
@@ -317,16 +401,16 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         print("[MOCK] Returning mock Pass-1 signal extraction result.")
         return SignalExtractionResult(
             phrases=[
-                FlaggedPhrase("guaranteed 100% income", 12, "investment_fraud"),
-                FlaggedPhrase("переходи по реферальной ссылке", 34, "referral_scheme"),
+                FlaggedPhrase(text="guaranteed 100% income", timestamp_s=12, category="investment_fraud"),
+                FlaggedPhrase(text="переходи по реферальной ссылке", timestamp_s=34, category="referral_scheme"),
             ],
             visual_markers=[
-                VisualMarker(7, "1xBet logo overlay visible in top-right corner", "illegal_gambling"),
-                VisualMarker(14, "Aggressive call-to-action banner with phone number", "referral_scheme"),
+                VisualMarker(frame_index=7, description="1xBet logo overlay visible in top-right corner", category="illegal_gambling"),
+                VisualMarker(frame_index=14, description="Aggressive call-to-action banner with phone number", category="referral_scheme"),
             ],
             entities=[
-                DetectedEntity("1xBet", "brand"),
-                DetectedEntity("@finance_guru", "person"),
+                DetectedEntity(name="1xBet", entity_type="brand"),
+                DetectedEntity(name="@finance_guru", entity_type="person"),
             ],
             gemini_pass1_request_id="mock-gemini-pass1-001",
         )
@@ -349,9 +433,9 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
                 "call-to-action at frame 14."
             ),
             top_flags=[
-                TopFlag("guaranteed income phrase at 0:12", "high"),
-                TopFlag("1xBet logo frame 7", "high"),
-                TopFlag("referral call-to-action frame 14", "medium"),
+                TopFlag(signal="guaranteed income phrase at 0:12", weight="high"),
+                TopFlag(signal="1xBet logo frame 7", weight="high"),
+                TopFlag(signal="referral call-to-action frame 14", weight="medium"),
             ],
             gemini_pass2_request_id="mock-gemini-pass2-001",
         )

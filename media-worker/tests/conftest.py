@@ -16,7 +16,9 @@ from src.config import Config
 def _mock_config(monkeypatch):
     """Patch environment variables so mock mode is reliably active during tests."""
     monkeypatch.setenv("SONIOX_API_KEY", "mock_key")
+    monkeypatch.setenv("GROQ_API_KEY", "mock_key")
     monkeypatch.setenv("GEMINI_API_KEY", "mock_key")
+    monkeypatch.setenv("BLACKBOX_API_KEY", "mock_key")
     monkeypatch.setenv("S3_ENDPOINT", "localhost:9000")
     monkeypatch.setenv("S3_ACCESS_KEY", "testaccess")
     monkeypatch.setenv("S3_SECRET_KEY", "testsecret")

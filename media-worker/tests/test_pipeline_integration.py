@@ -1,6 +1,86 @@
 """Integration tests for the media-worker pipeline."""
 
 
+class TestProviderFallbacks:
+    """Tests the Groq STT and Blackbox fallback provider wiring."""
+
+    def test_groq_stt_transcription(self, monkeypatch, tmp_path):
+        from src.config import Config
+
+        monkeypatch.setattr(Config, "HAS_SONIOX", False, raising=False)
+        monkeypatch.setattr(Config, "HAS_GROQ_STT", True, raising=False)
+        monkeypatch.setattr(Config, "GROQ_API_KEY", "test-groq-key", raising=False)
+        monkeypatch.setattr(Config, "GROQ_API_BASE_URL", "https://api.groq.com/openai/v1", raising=False)
+        monkeypatch.setattr(Config, "GROQ_STT_MODEL", "whisper-large-v3", raising=False)
+
+        from src.analyzer import groq_client
+
+        class _Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "id": "groq-test-1",
+                    "text": "hello world",
+                    "segments": [
+                        {"text": "hello", "start": 0.0, "end": 0.4},
+                        {"text": "world", "start": 0.4, "end": 0.8},
+                    ],
+                }
+
+        monkeypatch.setattr(groq_client.requests, "post", lambda *args, **kwargs: _Response())
+
+        audio_path = tmp_path / "test.mp3"
+        audio_path.write_bytes(b"fake mp3 bytes")
+
+        from src.analyzer.soniox_client import SonioxClient
+
+        client = SonioxClient()
+        result = client.transcribe(str(audio_path))
+
+        assert result.text == "hello world"
+        assert result.soniox_job_id == "groq-test-1"
+        assert len(result.tokens) == 2
+
+    def test_blackbox_completion_parsing(self, monkeypatch):
+        from src.config import Config
+
+        monkeypatch.setattr(Config, "HAS_GEMINI", False, raising=False)
+        monkeypatch.setattr(Config, "HAS_BLACKBOX", True, raising=False)
+        monkeypatch.setattr(Config, "BLACKBOX_API_KEY", "test-blackbox-key", raising=False)
+        monkeypatch.setattr(Config, "BLACKBOX_API_BASE_URL", "https://api.blackbox.ai/v1", raising=False)
+        monkeypatch.setattr(Config, "BLACKBOX_MODEL", "grok-code-fast", raising=False)
+
+        from src.analyzer import blackbox_client
+
+        class _Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "id": "blackbox-test-1",
+                    "choices": [
+                        {
+                            "message": {
+                                "content": '{"risk_score": 12, "confidence": "low", "categories": {"illegal_gambling": 0, "pyramid_scheme": 0, "investment_fraud": 12, "referral_scheme": 0}, "reasoning": "test", "top_flags": []}'
+                            }
+                        }
+                    ],
+                }
+
+        monkeypatch.setattr(blackbox_client.requests, "post", lambda *args, **kwargs: _Response())
+
+        from src.analyzer.blackbox_client import BlackboxClient
+
+        client = BlackboxClient()
+        req_id, content = client.chat_json("system", "user")
+
+        assert req_id == "blackbox-test-1"
+        assert "risk_score" in content
+
+
 class TestPydanticModels:
     """Tests that Pydantic validators properly reject malformed data."""
 
@@ -191,6 +271,9 @@ class TestEvidencePack:
 
         from src.pdfgen.generator import EvidencePackGenerator
         from src.analyzer.soniox_client import TranscriptResult
+        import boto3
+
+        monkeypatch.setattr(boto3, "client", lambda *args, **kwargs: s3_mock)
 
         gen = EvidencePackGenerator()
         transcript = mock_soniox_client.transcribe("/tmp/test.mp3")

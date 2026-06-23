@@ -3,6 +3,7 @@ Soniox Speech-to-Text Client
 Supports KZ/RU code-switched transcription.
 Falls back to mock data when SONIOX_API_KEY is not set.
 """
+from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -27,20 +28,38 @@ class TranscriptResult(BaseModel):
 class SonioxClient:
     def __init__(self):
         self._client = None
-        if not Config.IS_MOCK_MODE:
+        self._groq_client = None
+        if getattr(Config, "HAS_SONIOX", False):
             try:
                 from soniox import SonioxClient as _SonioxClient
                 self._client = _SonioxClient()
             except ImportError:
-                print("[WARN] soniox package not installed. Falling back to mock mode.")
+                print("[WARN] soniox package not installed. Will use fallback STT provider if available.")
+
+    def _fallback_transcribe(self, audio_path: str) -> TranscriptResult:
+        if self._groq_client is None and getattr(Config, "HAS_GROQ_STT", False):
+            try:
+                from src.analyzer.groq_client import GroqClient
+
+                self._groq_client = GroqClient()
+            except Exception as e:
+                print(f"[Groq STT] Client init failed: {e}. Using mock transcript.")
+
+        if self._groq_client is not None and self._groq_client.is_available():
+            try:
+                return self._groq_client.transcribe(audio_path)
+            except Exception as e:
+                print(f"[Groq STT] API call failed: {e}. Using mock transcript.")
+
+        return self._mock_transcription(audio_path)
 
     def transcribe(self, audio_path: str) -> TranscriptResult:
         """
         Transcribes the given audio file using Soniox API.
         Returns a TranscriptResult with full text and per-token timestamps.
         """
-        if Config.IS_MOCK_MODE or self._client is None:
-            return self._mock_transcription(audio_path)
+        if self._client is None:
+            return self._fallback_transcribe(audio_path)
 
         print(f"[Soniox] Transcribing audio: {audio_path}")
         try:
@@ -70,8 +89,8 @@ class SonioxClient:
             )
 
         except Exception as e:
-            print(f"[Soniox] API call failed: {e}. Using mock transcript.")
-            return self._mock_transcription(audio_path)
+            print(f"[Soniox] API call failed: {e}. Falling back to Groq or mock transcript.")
+            return self._fallback_transcribe(audio_path)
 
     def close(self):
         if self._client:
@@ -84,18 +103,18 @@ class SonioxClient:
     def _mock_transcription(audio_path: str) -> TranscriptResult:
         print(f"[MOCK] Generating mock transcript for: {audio_path}")
         mock_tokens = [
-            TranscriptToken("Сіздің", 0, 500, 0.95, "kk"),
-            TranscriptToken("инвестицияңыз", 500, 1200, 0.93, "kk"),
-            TranscriptToken("100%", 1200, 1600, 0.98, "kk"),
-            TranscriptToken("кірісті", 1600, 2100, 0.91, "kk"),
-            TranscriptToken("қамтамасыз", 2100, 2700, 0.89, "kk"),
-            TranscriptToken("етеді", 2700, 3000, 0.94, "kk"),
-            TranscriptToken("Переходи", 3000, 3500, 0.96, "ru"),
-            TranscriptToken("по", 3500, 3700, 0.97, "ru"),
-            TranscriptToken("ссылке", 3700, 4200, 0.95, "ru"),
-            TranscriptToken("и", 4200, 4400, 0.98, "ru"),
-            TranscriptToken("получи", 4400, 4900, 0.95, "ru"),
-            TranscriptToken("бонус", 4900, 5400, 0.94, "ru"),
+            TranscriptToken(text="Сіздің", start_ms=0, end_ms=500, confidence=0.95, language="kk"),
+            TranscriptToken(text="инвестицияңыз", start_ms=500, end_ms=1200, confidence=0.93, language="kk"),
+            TranscriptToken(text="100%", start_ms=1200, end_ms=1600, confidence=0.98, language="kk"),
+            TranscriptToken(text="кірісті", start_ms=1600, end_ms=2100, confidence=0.91, language="kk"),
+            TranscriptToken(text="қамтамасыз", start_ms=2100, end_ms=2700, confidence=0.89, language="kk"),
+            TranscriptToken(text="етеді", start_ms=2700, end_ms=3000, confidence=0.94, language="kk"),
+            TranscriptToken(text="Переходи", start_ms=3000, end_ms=3500, confidence=0.96, language="ru"),
+            TranscriptToken(text="по", start_ms=3500, end_ms=3700, confidence=0.97, language="ru"),
+            TranscriptToken(text="ссылке", start_ms=3700, end_ms=4200, confidence=0.95, language="ru"),
+            TranscriptToken(text="и", start_ms=4200, end_ms=4400, confidence=0.98, language="ru"),
+            TranscriptToken(text="получи", start_ms=4400, end_ms=4900, confidence=0.95, language="ru"),
+            TranscriptToken(text="бонус", start_ms=4900, end_ms=5400, confidence=0.94, language="ru"),
         ]
         full_text = " ".join(t.text for t in mock_tokens)
         return TranscriptResult(
