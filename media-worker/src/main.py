@@ -144,6 +144,7 @@ def process_job(
     soniox,
     pdf_gen,
     producer,
+    ffmpeg,
     cache=None,
 ) -> None:
     job_id = job["job_id"]
@@ -197,7 +198,7 @@ def process_job(
         _sync_status(job_id, "extracting")
         log_stage(job_id, "extract", "starting FFmpeg extraction…")
         ext_start = time.time()
-        audio_path, keyframe_paths = FFmpegProcessor.extract_all(
+        audio_path, keyframe_paths = ffmpeg.extract_all(
             video_path, audio_path, frames_dir, use_scene_detection=USE_SCENE_DETECTION,
         )
         ext_elapsed = time.time() - ext_start
@@ -371,7 +372,7 @@ def main():
             if job:
                 poll_count += 1
                 logger.info(f"Job received from Kafka: {job.get('job_id', 'unknown')}")
-                process_job(job, downloader, gemini, soniox, pdf_gen, producer, cache)
+                process_job(job, downloader, gemini, soniox, pdf_gen, producer, ffmpeg, cache)
                 last_heartbeat = time.time()
             else:
                 # Heartbeat log every 30s when idle

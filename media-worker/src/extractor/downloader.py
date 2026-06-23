@@ -23,36 +23,36 @@ class VideoDownloader:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
         if Config.IS_MOCK_MODE:
-            print(f"[MOCK] Simulating video download from: {url}")
+            logger.info(f"[MOCK] Simulating video download from: {url}")
             with open(output_path, 'wb') as f:
                 f.write(b"MOCK VIDEO CONTENT")
             return os.path.abspath(output_path)
 
         # Layer 1: yt-dlp with cookies
         if Config.YTDLP_COOKIES_FILE and os.path.isfile(Config.YTDLP_COOKIES_FILE):
-            print(f"[Download] Trying yt-dlp with cookies ({Config.YTDLP_COOKIES_FILE})")
+            logger.info(f"[Download] Trying yt-dlp with cookies ({Config.YTDLP_COOKIES_FILE})")
             result = _try_ytdlp(url, output_path, cookies_file=Config.YTDLP_COOKIES_FILE)
             if result:
                 return result
-            print("[Download] yt-dlp with cookies failed, trying next layer...")
+            logger.info("[Download] yt-dlp with cookies failed, trying next layer...")
 
         # Layer 2: yt-dlp without cookies
-        print("[Download] Trying yt-dlp (no cookies)")
+        logger.info("[Download] Trying yt-dlp (no cookies)")
         result = _try_ytdlp(url, output_path)
         if result:
             return result
-        print("[Download] yt-dlp failed, trying next layer...")
+        logger.info("[Download] yt-dlp failed, trying next layer...")
 
         # Layer 3: Cobalt API
         if Config.COBALT_API_URL:
-            print(f"[Download] Trying Cobalt API ({Config.COBALT_API_URL})")
+            logger.info(f"[Download] Trying Cobalt API ({Config.COBALT_API_URL})")
             result = _try_cobalt(url, output_path)
             if result:
                 return result
-            print("[Download] Cobalt API failed, trying next layer...")
+            logger.info("[Download] Cobalt API failed, trying next layer...")
 
         # Layer 4: Mock fallback (last resort)
-        print("[Download] All download methods failed. Writing mock placeholder.")
+        logger.info("[Download] All download methods failed. Writing mock placeholder.")
         with open(output_path, 'wb') as f:
             f.write(b"MOCK VIDEO CONTENT")
         return os.path.abspath(output_path)
@@ -86,7 +86,7 @@ def _try_ytdlp(url: str, output_path: str, cookies_file: str = None) -> str | No
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception as e:
-        print(f"[Download] yt-dlp error: {e}")
+        logger.warning(f"[Download] yt-dlp error: {e}")
         return None
 
     # Handle yt-dlp appending extension
