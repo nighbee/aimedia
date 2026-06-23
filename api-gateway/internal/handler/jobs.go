@@ -12,16 +12,18 @@ import (
 	"github.com/aimedia/api-gateway/internal/service"
 )
 
-// SubmitJob handles POST /api/v1/jobs
+var anonymousInspectorID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+
+// SubmitJob handles POST /api/v1/jobs (no auth required)
 func (h *Handler) SubmitJob(c *fiber.Ctx) error {
 	var req model.CreateJobRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
-	inspectorID, ok := c.Locals("inspector_id").(uuid.UUID)
-	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid inspector context"})
+	inspectorID, _ := c.Locals("inspector_id").(uuid.UUID)
+	if inspectorID == uuid.Nil {
+		inspectorID = anonymousInspectorID
 	}
 
 	job, err := h.jobService.SubmitJob(c.Context(), req, inspectorID)
