@@ -10,15 +10,15 @@ Message schema (JSON):
     "reasoning":    str,
     "categories":   { illegal_gambling, pyramid_scheme, investment_fraud, referral_scheme },
     "top_flags":    [{ signal, weight }],
-    "evidence_url": str | null,     # GCS object path (e.g. "evidence-packs/<uuid>.pdf")
+    "evidence_url": str | null,     # S3 object path (e.g. "evidence-packs/<uuid>.pdf")
+    "custody_log":  [{ timestamp, stage, status }],
     "error":        str | null
   }
 
-The evidence_url is stored as a GCS object path so the Go API can
-regenerate a fresh signed URL on each evidence download request.
+The evidence_url is stored as an S3 object path so the Go API can
+regenerate a fresh presigned URL on each evidence download request.
 """
 import json
-import re
 from typing import Optional
 
 from src.config import Config
@@ -51,10 +51,8 @@ class JobProducer:
         categories: dict,
         top_flags: list,
         evidence_url: Optional[str],
+        custody_log: Optional[list] = None,
     ) -> None:
-        # Convert full signed URL → GCS object path for fresh re-signing by Go API
-        object_path = self._to_object_path(evidence_url) if evidence_url else None
-
         payload = {
             "job_id": job_id,
             "status": "completed",
@@ -65,12 +63,13 @@ class JobProducer:
             "top_flags": [
                 {"signal": f.signal, "weight": f.weight} for f in top_flags
             ],
-            "evidence_url": object_path,
+            "evidence_url": evidence_url,
+            "custody_log": custody_log or [],
             "error": None,
         }
         self._send(payload)
 
-    def publish_failed(self, job_id: str, stage: str, error: str) -> None:
+    def publish_failed(self, job_id: str, stage: str, error: str, custody_log: Optional[list] = None) -> None:
         payload = {
             "job_id": job_id,
             "status": "failed",
@@ -80,29 +79,10 @@ class JobProducer:
             "categories": {},
             "top_flags": [],
             "evidence_url": None,
+            "custody_log": custody_log or [],
             "error": f"{stage}: {error}",
         }
         self._send(payload)
-
-    def _to_object_path(self, url: str) -> str:
-        """Extract GCS object path from a full signed URL, or return as-is."""
-        # Pattern: https://storage.googleapis.com/<bucket>/<object-path>?params
-        match = re.match(
-            r"https://storage\.googleapis\.com/[^/]+/(.+)",
-            url,
-        )
-        if match:
-            # Strip query params from the matched object path
-            path = match.group(1)
-            if "?" in path:
-                path = path.split("?")[0]
-            return path
-
-        # If it's already a bare path like "evidence-packs/xxx.pdf", return as-is
-        if url.startswith("evidence-packs/") or url.startswith("file://"):
-            return url
-
-        return url
 
     def _send(self, payload: dict) -> None:
         job_id = payload.get("job_id", "unknown")

@@ -188,7 +188,7 @@ func (s *jobService) UpdateJobStatus(ctx context.Context, id uuid.UUID, status m
 		return ErrInvalidTransition
 	}
 
-	return s.jobRepo.UpdateStatus(ctx, id, status, nil)
+	return s.jobRepo.UpdateStatus(ctx, id, status, nil, nil)
 }
 
 func (s *jobService) SetS3Client(s3 *storage.S3Client) {

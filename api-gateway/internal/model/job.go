@@ -29,6 +29,7 @@ type Job struct {
 	Confidence    *string    `json:"confidence,omitempty" db:"confidence"`
 	Reasoning     *string    `json:"reasoning,omitempty" db:"reasoning"`
 	EvidenceURL   *string    `json:"evidence_url,omitempty" db:"evidence_url"`
+	CustodyLog    interface{} `json:"custody_log,omitempty" db:"custody_log"`
 	FailedAtStage *string    `json:"failed_at_stage,omitempty" db:"failed_at_stage"`
 	RetryCount    int        `json:"retry_count" db:"retry_count"`
 	InspectorID   uuid.UUID  `json:"inspector_id" db:"inspector_id"`
@@ -63,6 +64,7 @@ type JobCompletedEvent struct {
 	Categories  *map[string]int    `json:"categories"`
 	TopFlags    *[]TopFlag         `json:"top_flags"`
 	EvidenceURL *string            `json:"evidence_url"`
+	CustodyLog  interface{}        `json:"custody_log"`
 	Error       *string            `json:"error"`
 }
 

@@ -5,13 +5,12 @@ Renders a Jinja2 HTML template with embedded base64 keyframes,
 then converts to PDF via WeasyPrint.
 
 Storage:
-  - If GCS_BUCKET_NAME is set (and google-cloud-storage is available) → uploads to GCS.
+  - If S3/MinIO is configured → uploads to bucket `evidence-packs/<job_id>.pdf`
+    and returns the object path for the Go API to generate fresh presigned URLs.
   - Otherwise → saves locally to /tmp/evidence/<job_id>.pdf and returns a file:// URL
-    (suitable for the hackathon demo environment).
+    (suitable for dev / hackathon environments).
 """
 import base64
-import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -123,23 +122,25 @@ class EvidencePackGenerator:
     @staticmethod
     def _store_pdf(job_id: str, pdf_bytes: bytes) -> str:
         """
-        Upload to S3-compatible storage (MinIO) if configured, otherwise save locally.
-        Returns the S3 object path (e.g. "evidence-packs/<uuid>.pdf") for fresh
-        presigning by the Go API.
+        Upload to S3/MinIO if configured, otherwise save locally.
+        Returns the S3 object path (e.g. "evidence-packs/<uuid>.pdf") so the Go API
+        can generate a fresh presigned URL on each evidence download request.
         """
-        endpoint = os.getenv("S3_ENDPOINT", "")
-        access_key = os.getenv("S3_ACCESS_KEY", "")
-        secret_key = os.getenv("S3_SECRET_KEY", "")
-        bucket = os.getenv("S3_BUCKET_NAME", "")
+        endpoint = Config.S3_ENDPOINT
+        access_key = Config.S3_ACCESS_KEY
+        secret_key = Config.S3_SECRET_KEY
+        bucket = Config.S3_BUCKET_NAME
+        use_ssl = Config.S3_USE_SSL
 
         if endpoint and access_key and secret_key and bucket:
             try:
                 import boto3
                 from botocore.config import Config as BotoConfig
 
+                protocol = "https" if use_ssl else "http"
                 client = boto3.client(
                     "s3",
-                    endpoint_url=f"http://{endpoint}",
+                    endpoint_url=f"{protocol}://{endpoint}",
                     aws_access_key_id=access_key,
                     aws_secret_access_key=secret_key,
                     config=BotoConfig(signature_version="s3v4"),

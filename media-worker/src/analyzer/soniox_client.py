@@ -3,23 +3,22 @@ Soniox Speech-to-Text Client
 Supports KZ/RU code-switched transcription.
 Falls back to mock data when SONIOX_API_KEY is not set.
 """
-import os
-from dataclasses import dataclass
 from typing import Optional
+
+from pydantic import BaseModel, Field
+
 from src.config import Config
 
 
-@dataclass
-class TranscriptToken:
+class TranscriptToken(BaseModel):
     text: str
-    start_ms: int
-    end_ms: int
-    confidence: Optional[float] = None
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     language: Optional[str] = None
 
 
-@dataclass
-class TranscriptResult:
+class TranscriptResult(BaseModel):
     text: str
     tokens: list[TranscriptToken]
     soniox_job_id: str

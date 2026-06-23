@@ -145,7 +145,7 @@ func (c *Consumer) handleCompleted(logger *zap.Logger, jobID uuid.UUID, event *m
 	}
 
 	op := func() error {
-		return c.jobRepo.Complete(c.ctx, jobID, *event.RiskScore, confidence, reasoning, event.EvidenceURL)
+		return c.jobRepo.Complete(c.ctx, jobID, *event.RiskScore, confidence, reasoning, event.EvidenceURL, event.CustodyLog)
 	}
 	if err := retryWithBackoff(c.ctx, op, maxRetries, logger); err != nil {
 		return fmt.Errorf("complete job: %w", err)
@@ -186,7 +186,7 @@ func (c *Consumer) handleFailed(logger *zap.Logger, jobID uuid.UUID, event *mode
 	}
 
 	op := func() error {
-		return c.jobRepo.UpdateStatus(c.ctx, jobID, model.JobStatusFailed, &failedStage)
+		return c.jobRepo.UpdateStatus(c.ctx, jobID, model.JobStatusFailed, &failedStage, event.CustodyLog)
 	}
 	if err := retryWithBackoff(c.ctx, op, maxRetries, logger); err != nil {
 		return fmt.Errorf("update job to failed: %w", err)

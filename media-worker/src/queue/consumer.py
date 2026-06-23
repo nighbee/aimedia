@@ -10,9 +10,38 @@ Message schema (JSON):
   }
 """
 import json
-from typing import Callable, Optional
+from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
 
 from src.config import Config
+
+
+class JobMessage(BaseModel):
+    """Validated schema for incoming Kafka job-created messages."""
+    job_id: str
+    url: str = Field(max_length=2048)
+    platform: str = ""
+    priority: int = Field(default=2, ge=1, le=3)
+    submitted_at: str = ""
+    inspector_id: str = "system"
+
+    @field_validator("job_id")
+    @classmethod
+    def validate_job_id(cls, v: str) -> str:
+        try:
+            UUID(v)
+        except ValueError:
+            raise ValueError(f"Invalid job_id: {v} is not a valid UUID")
+        return v
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError(f"Invalid URL: {v[:100]}")
+        return v
 
 
 class JobConsumer:
@@ -39,7 +68,8 @@ class JobConsumer:
     def poll(self, timeout_s: float = 5.0) -> Optional[dict]:
         """
         Poll for one message.
-        Returns the parsed dict payload, or None if no message is available.
+        Returns the validated dict payload, or None if no message is available.
+        Malformed messages are logged and skipped.
         """
         if self._mock:
             return None   # mock polling always returns nothing; main.py drives mock jobs directly
@@ -54,15 +84,24 @@ class JobConsumer:
                 return None
             raise RuntimeError(f"Kafka consumer error: {msg.error()}")
 
+        raw = msg.value()
         try:
-            payload = json.loads(msg.value().decode("utf-8"))
-            self._consumer.commit(msg)
-            print(f"[Kafka Consumer] Received job: {payload.get('job_id')}")
-            return payload
-        except json.JSONDecodeError as e:
-            print(f"[Kafka Consumer] Malformed message, skipping: {e}")
+            payload = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            print(f"[Kafka Consumer] Malformed message (invalid JSON), skipping: {e}")
             self._consumer.commit(msg)
             return None
+
+        try:
+            validated = JobMessage(**payload)
+        except Exception as e:
+            print(f"[Kafka Consumer] Message validation failed, skipping: {e}")
+            self._consumer.commit(msg)
+            return None
+
+        self._consumer.commit(msg)
+        print(f"[Kafka Consumer] Received job: {validated.job_id}")
+        return validated.model_dump()
 
     def close(self):
         if self._consumer:

@@ -45,7 +45,7 @@ func (r *JobRepository) Create(ctx context.Context, job *model.Job) error {
 func (r *JobRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Job, error) {
 	query := `
 		SELECT id, url, platform, status, priority, risk_score, confidence, reasoning,
-		       evidence_url, failed_at_stage, retry_count, inspector_id,
+		       evidence_url, custody_log, failed_at_stage, retry_count, inspector_id,
 		       created_at, updated_at, completed_at
 		FROM core.jobs WHERE id = $1`
 
@@ -53,7 +53,7 @@ func (r *JobRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Job,
 	err := r.pool.QueryRow(ctx, query, id).Scan(
 		&job.ID, &job.URL, &job.Platform, &job.Status, &job.Priority,
 		&job.RiskScore, &job.Confidence, &job.Reasoning,
-		&job.EvidenceURL, &job.FailedAtStage, &job.RetryCount, &job.InspectorID,
+		&job.EvidenceURL, &job.CustodyLog, &job.FailedAtStage, &job.RetryCount, &job.InspectorID,
 		&job.CreatedAt, &job.UpdatedAt, &job.CompletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -65,7 +65,7 @@ func (r *JobRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Job,
 func (r *JobRepository) List(ctx context.Context, statusFilter string) ([]model.Job, error) {
 	query := `
 		SELECT id, url, platform, status, priority, risk_score, confidence, reasoning,
-		       evidence_url, failed_at_stage, retry_count, inspector_id,
+		       evidence_url, custody_log, failed_at_stage, retry_count, inspector_id,
 		       created_at, updated_at, completed_at
 		FROM core.jobs`
 	args := []interface{}{}
@@ -102,7 +102,7 @@ func (r *JobRepository) ListPaginated(ctx context.Context, params model.ListJobs
 	offset := (params.Page - 1) * params.Limit
 	query := `
 		SELECT id, url, platform, status, priority, risk_score, confidence, reasoning,
-		       evidence_url, failed_at_stage, retry_count, inspector_id,
+		       evidence_url, custody_log, failed_at_stage, retry_count, inspector_id,
 		       created_at, updated_at, completed_at
 		FROM core.jobs`
 	args := []interface{}{}
@@ -150,7 +150,7 @@ func (r *JobRepository) queryJobs(ctx context.Context, query string, args ...int
 		if err := rows.Scan(
 			&j.ID, &j.URL, &j.Platform, &j.Status, &j.Priority,
 			&j.RiskScore, &j.Confidence, &j.Reasoning,
-			&j.EvidenceURL, &j.FailedAtStage, &j.RetryCount, &j.InspectorID,
+			&j.EvidenceURL, &j.CustodyLog, &j.FailedAtStage, &j.RetryCount, &j.InspectorID,
 			&j.CreatedAt, &j.UpdatedAt, &j.CompletedAt,
 		); err != nil {
 			return nil, err
@@ -160,12 +160,13 @@ func (r *JobRepository) queryJobs(ctx context.Context, query string, args ...int
 	return jobs, rows.Err()
 }
 
-func (r *JobRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status model.JobStatus, failedAtStage *string) error {
+func (r *JobRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status model.JobStatus, failedAtStage *string, custodyLog interface{}) error {
 	query := `
 		UPDATE core.jobs
-		SET status = $1, failed_at_stage = $2, updated_at = $3
-		WHERE id = $4`
-	result, err := r.pool.Exec(ctx, query, status, failedAtStage, time.Now().UTC(), id)
+		SET status = $1, failed_at_stage = $2, custody_log = COALESCE($3, custody_log),
+		    updated_at = $4
+		WHERE id = $5`
+	result, err := r.pool.Exec(ctx, query, status, failedAtStage, custodyLog, time.Now().UTC(), id)
 	if err != nil {
 		return err
 	}
@@ -175,15 +176,17 @@ func (r *JobRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status m
 	return nil
 }
 
-func (r *JobRepository) Complete(ctx context.Context, id uuid.UUID, riskScore int, confidence string, reasoning string, evidenceURL *string) error {
+func (r *JobRepository) Complete(ctx context.Context, id uuid.UUID, riskScore int, confidence string, reasoning string, evidenceURL *string, custodyLog interface{}) error {
 	query := `
 		UPDATE core.jobs
 		SET status = $1, risk_score = $2, confidence = $3, reasoning = $4,
-		    evidence_url = COALESCE($5, evidence_url), completed_at = $6, updated_at = $6
-		WHERE id = $7`
+		    evidence_url = COALESCE($5, evidence_url),
+		    custody_log = COALESCE($6, custody_log),
+		    completed_at = $7, updated_at = $7
+		WHERE id = $8`
 	now := time.Now().UTC()
 	result, err := r.pool.Exec(ctx, query,
-		model.JobStatusCompleted, riskScore, confidence, reasoning, evidenceURL, now, id,
+		model.JobStatusCompleted, riskScore, confidence, reasoning, evidenceURL, custodyLog, now, id,
 	)
 	if err != nil {
 		return err

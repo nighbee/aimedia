@@ -10,56 +10,101 @@ import base64
 import json
 import os
 import time
-from dataclasses import dataclass, field
-from typing import Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 from src.config import Config
 
 
-# ─── Pydantic-style data models ────────────────────────────────────────────────
+# ─── Validated data models ─────────────────────────────────────────────────────
 
-@dataclass
-class FlaggedPhrase:
+class FlaggedPhrase(BaseModel):
     text: str
-    timestamp_s: int
+    timestamp_s: int = Field(ge=0)
     category: str
 
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        allowed = {"illegal_gambling", "pyramid_scheme", "investment_fraud", "referral_scheme", "other"}
+        if v not in allowed:
+            raise ValueError(f"Invalid category: {v}. Must be one of {allowed}")
+        return v
 
-@dataclass
-class VisualMarker:
-    frame_index: int
+
+class VisualMarker(BaseModel):
+    frame_index: int = Field(ge=0)
     description: str
     category: str
 
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        allowed = {"illegal_gambling", "pyramid_scheme", "investment_fraud", "referral_scheme", "other"}
+        if v not in allowed:
+            raise ValueError(f"Invalid category: {v}. Must be one of {allowed}")
+        return v
 
-@dataclass
-class DetectedEntity:
+
+class DetectedEntity(BaseModel):
     name: str
-    entity_type: str   # brand | person | platform
+    entity_type: str  # brand | person | platform
+
+    @field_validator("entity_type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        allowed = {"brand", "person", "platform"}
+        if v not in allowed:
+            raise ValueError(f"Invalid entity_type: {v}. Must be one of {allowed}")
+        return v
 
 
-@dataclass
-class SignalExtractionResult:
+class SignalExtractionResult(BaseModel):
     phrases: list[FlaggedPhrase]
     visual_markers: list[VisualMarker]
     entities: list[DetectedEntity]
     gemini_pass1_request_id: str
 
 
-@dataclass
-class TopFlag:
+class TopFlag(BaseModel):
     signal: str
-    weight: str   # high | medium | low
+    weight: str  # high | medium | low
+
+    @field_validator("weight")
+    @classmethod
+    def validate_weight(cls, v: str) -> str:
+        allowed = {"high", "medium", "low"}
+        if v not in allowed:
+            raise ValueError(f"Invalid weight: {v}. Must be one of {allowed}")
+        return v
 
 
-@dataclass
-class RiskScoringResult:
-    risk_score: int
-    confidence: str           # low | medium | high
+class RiskScoringResult(BaseModel):
+    risk_score: int = Field(ge=0, le=100)
+    confidence: str  # low | medium | high
     categories: dict[str, int]
     reasoning: str
     top_flags: list[TopFlag]
     gemini_pass2_request_id: str
+
+    @field_validator("confidence")
+    @classmethod
+    def validate_confidence(cls, v: str) -> str:
+        allowed = {"low", "medium", "high"}
+        if v not in allowed:
+            raise ValueError(f"Invalid confidence: {v}. Must be one of {allowed}")
+        return v
+
+    @field_validator("categories")
+    @classmethod
+    def validate_categories(cls, v: dict[str, int]) -> dict[str, int]:
+        allowed = {"illegal_gambling", "pyramid_scheme", "investment_fraud", "referral_scheme"}
+        for key, score in v.items():
+            if key not in allowed:
+                raise ValueError(f"Invalid category key: {key}. Must be one of {allowed}")
+            if not (0 <= score <= 100):
+                raise ValueError(f"Category {key} score out of range [0, 100]: {score}")
+        return v
 
 
 # ─── Client ────────────────────────────────────────────────────────────────────
@@ -118,7 +163,12 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
             ]
         })
 
-        req_id, raw = self._call_gemini(self.PASS1_SYSTEM_PROMPT, contents)
+        try:
+            req_id, raw = self._call_with_retry(self.PASS1_SYSTEM_PROMPT, contents)
+        except Exception:
+            print("[Gemini] Pass 1 all retries exhausted. Falling back to mock output.")
+            return self._mock_pass1()
+
         data = self._parse_json(raw)
 
         phrases = [
@@ -168,7 +218,12 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
             "parts": [{"text": f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\nScore the risk per the schema."}]
         }]
 
-        req_id, raw = self._call_gemini(self.PASS2_SYSTEM_PROMPT, contents)
+        try:
+            req_id, raw = self._call_with_retry(self.PASS2_SYSTEM_PROMPT, contents)
+        except Exception:
+            print("[Gemini] Pass 2 all retries exhausted. Falling back to mock output.")
+            return self._mock_pass2()
+
         data = self._parse_json(raw)
 
         top_flags = [
@@ -190,19 +245,22 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
             gemini_pass2_request_id=req_id,
         )
 
-    def _call_gemini(
+    def _call_with_retry(
         self,
         system_prompt: str,
         contents: list,
-        retries: int = 3,
     ) -> tuple[str, str]:
-        """Call the Gemini API with exponential backoff. Returns (request_id, raw_text)."""
+        """Call Gemini API with exponential backoff. Returns (request_id, raw_text)."""
         from google.genai import types
 
-        for attempt in range(retries):
+        max_retries = Config.GEMINI_MAX_RETRIES
+        base_backoff = Config.GEMINI_RETRY_BACKOFF_BASE_SECONDS
+        last_error = None
+
+        for attempt in range(max_retries):
             try:
                 response = self._client.models.generate_content(
-                    model="gemini-2.0-flash",
+                    model=Config.GEMINI_MODEL,
                     contents=contents,
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
@@ -210,15 +268,18 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
                         response_mime_type="application/json",
                     ),
                 )
-                req_id = getattr(response, "metadata", {}).get("request_id", f"gemini-req-{attempt}")
+                req_id = getattr(response, "response_id", None) or f"gemini-req-{attempt}"
                 return str(req_id), response.text
             except Exception as e:
-                wait = (2 ** attempt) + 0.5
-                print(f"[Gemini] API error (attempt {attempt + 1}/{retries}): {e}. Retrying in {wait}s …")
-                time.sleep(wait)
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait = base_backoff ** attempt
+                    print(f"[Gemini] API error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait}s …")
+                    time.sleep(wait)
+                else:
+                    print(f"[Gemini] All {max_retries} attempts exhausted. Last error: {e}")
 
-        print("[Gemini] All retries exhausted. Returning empty result.")
-        return "gemini-failed", "{}"
+        raise RuntimeError(f"Gemini API call failed after {max_retries} attempts") from last_error
 
     def _build_image_parts(self, keyframe_paths: list[str]) -> list:
         """Encode up to 20 keyframes as base64 inline images."""
