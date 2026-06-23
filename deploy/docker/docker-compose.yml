@@ -26,6 +26,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # Database migrations — runs on every docker compose up, idempotent
+  db-migrate:
+    image: postgres:16-alpine
+    container_name: aimedia-db-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: aimedia_user
+      PGPASSWORD: aimedia_secure_password
+      PGDATABASE: aimedia_db
+    volumes:
+      - ../../db/migrations:/migrations:ro
+      - ../../db/migrate.sh:/migrate.sh:ro
+    entrypoint: ["/bin/sh", "/migrate.sh"]
+    restart: "no"
+
   # Message Broker Layer (Apache Kafka in KRaft Mode)
   kafka:
     image: confluentinc/cp-kafka:7.6.0
@@ -209,6 +228,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
     restart: unless-stopped
