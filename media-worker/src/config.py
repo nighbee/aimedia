@@ -33,6 +33,13 @@ class Config:
     S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "evidence-packs")
     S3_USE_SSL = os.getenv("S3_USE_SSL", "false") == "true"
 
+    # Cobalt API (self-hosted media downloader)
+    COBALT_API_URL = os.getenv("COBALT_API_URL", "").rstrip("/")
+    COBALT_API_KEY = os.getenv("COBALT_API_KEY", "")
+
+    # yt-dlp cookies file (Netscape format)
+    YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "")
+
     # Processing
     TMP_DIR = os.getenv("TMP_DIR", "/tmp/mediawatch-jobs")
     MAX_VIDEO_DURATION_SECONDS = int(os.getenv("MAX_VIDEO_DURATION_SECONDS", "600"))
