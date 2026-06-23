@@ -185,6 +185,21 @@ services:
       "
     restart: "no"
 
+  # Kafka topic initializer — creates topics before other services start
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: aimedia-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic media.job.created --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic media.job.completed --partitions 1 --replication-factor 1 &&
+      echo 'Kafka topics ready'
+      "
+    restart: "no"
+
   # Go API Gateway Layer
   go-api:
     build:
@@ -228,6 +243,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       db-migrate:
         condition: service_completed_successfully
       minio-init:
