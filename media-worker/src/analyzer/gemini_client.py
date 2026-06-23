@@ -179,6 +179,9 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         if self._client is None and self._use_blackbox():
             return self._blackbox_pass1(transcript_text, keyframe_paths)
 
+        if self._client is None and self._use_ollama():
+            return self._ollama_pass1(transcript_text, keyframe_paths)
+
         # Build content parts: images then transcript
         contents = self._build_image_parts(keyframe_paths)
         contents.append({
@@ -237,8 +240,14 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         keyframe_paths: list[str],
     ) -> SignalExtractionResult:
         """Pass 1 split into two parallel sub-calls: visual scan + audio scan."""
-        if self._client is None and not self._use_blackbox():
+        if self._client is None and not self._use_blackbox() and not self._use_ollama():
             return self._mock_pass1()
+
+        if self._client is None and self._use_blackbox():
+            return self._blackbox_pass1(transcript_text, keyframe_paths)
+
+        if self._client is None and self._use_ollama():
+            return self._ollama_pass1(transcript_text, keyframe_paths)
 
         def _visual_scan() -> tuple[list[VisualMarker], list[DetectedEntity], str]:
             system_prompt = """You are a fraud-signal extractor. Given ONLY video keyframes (no transcript), identify suspicious visual elements and return ONLY JSON.
@@ -333,6 +342,9 @@ If nothing suspicious is found, return empty phrases array."""
 
         if self._client is None and self._use_blackbox():
             return self._blackbox_pass2(signals)
+
+        if self._client is None and self._use_ollama():
+            return self._ollama_pass2(signals)
 
         signals_payload = {
             "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
