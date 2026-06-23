@@ -21,7 +21,7 @@ class Config:
     GROQ_API_BASE_URL = os.getenv("GROQ_API_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
     GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     BLACKBOX_API_KEY = os.getenv("BLACKBOX_API_KEY", "")
     BLACKBOX_API_BASE_URL = os.getenv("BLACKBOX_API_BASE_URL", "https://api.blackbox.ai/v1").rstrip("/")
     BLACKBOX_MODEL = os.getenv("BLACKBOX_MODEL", "grok-code-fast")

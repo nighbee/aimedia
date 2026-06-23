@@ -1,4 +1,44 @@
 const API_BASE = '/api/v1';
+const TOKEN_KEY = 'auth_token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface LoginResponse {
+  token: string;
+  inspector_id: string;
+  email: string;
+  role: string;
+}
+
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || 'Login failed');
+  }
+  const data: LoginResponse = await res.json();
+  setToken(data.token);
+  return data;
+}
 
 export interface Job {
   job_id: string;
@@ -32,7 +72,7 @@ export interface JobListResponse {
 export async function submitJob(url: string): Promise<SubmitResponse> {
   const res = await fetch(`${API_BASE}/jobs`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ url }),
   });
   if (!res.ok) {
@@ -43,7 +83,7 @@ export async function submitJob(url: string): Promise<SubmitResponse> {
 }
 
 export async function getJob(jobId: string): Promise<Job> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+  const res = await fetch(`${API_BASE}/jobs/${jobId}`, { headers: authHeaders() });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || 'Failed to fetch job');
@@ -54,14 +94,14 @@ export async function getJob(jobId: string): Promise<Job> {
 export async function listJobs(status?: string, page = 1, limit = 20): Promise<JobListResponse> {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (status) params.set('status', status);
-  const res = await fetch(`${API_BASE}/jobs?${params}`);
+  const res = await fetch(`${API_BASE}/jobs?${params}`, { headers: authHeaders() });
   if (!res.ok) throw new Error('Failed to list jobs');
   return res.json();
 }
 
 export async function getEvidenceUrl(jobId: string): Promise<string | null> {
   try {
-    const res = await fetch(`${API_BASE}/jobs/${jobId}/evidence`);
+    const res = await fetch(`${API_BASE}/jobs/${jobId}/evidence`, { headers: authHeaders() });
     if (!res.ok) return null;
     const data = await res.json();
     return data.evidence_url || null;

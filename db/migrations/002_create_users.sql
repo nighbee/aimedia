@@ -12,7 +12,7 @@ INSERT INTO core.users (id, email, password_hash, role)
 VALUES (
     '00000000-0000-0000-0000-000000000001',
     'admin@mediawatch.ai',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+    '$2b$10$COYzYionF2AfieUQiavkKeBG0tHmq3qYIlN.Krs1uVpPCI4U.h/Dy',
     'admin'
 )
 ON CONFLICT (id) DO NOTHING;

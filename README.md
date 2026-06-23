@@ -299,8 +299,8 @@ docker compose -f deploy/docker/docker-compose.yml up -d
 open http://localhost
 
 # 4. Log in with the seeded admin account
-#    Email: admin@aimedia.app
-#    Password: (see db/migrations/004-seed-admin.sql)
+#    Email: admin@mediawatch.ai
+#    Password: admin123 (see db/migrations/002_create_users.sql)
 ```
 
 The frontend is served at `http://localhost`, and the Go API is available internally at `go-api:8080`.

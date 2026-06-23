@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+ENV PYTHONUNBUFFERED=1
+
 # Install Python dependencies (no cache to keep layer small)
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --no-compile -r requirements.txt
