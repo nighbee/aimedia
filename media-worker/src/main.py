@@ -341,6 +341,7 @@ def main():
         soniox = components["soniox"]()
         pdf_gen = components["pdf_gen"]()
         cache = components["cache_cls"]()
+        ffmpeg = components["ffmpeg"]
         logger.info("All pipeline components initialized")
     except Exception as e:
         logger.error(f"Failed to initialize components: {e}")

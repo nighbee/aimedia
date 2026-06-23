@@ -128,7 +128,7 @@ def _try_cobalt(url: str, output_path: str) -> str | None:
 
         if status == 'error':
             error_code = data.get('error', {}).get('code', 'unknown')
-            print(f"[Download] Cobalt error: {error_code}")
+            logger.warning(f"[Download] Cobalt error: {error_code}")
             return None
 
         if status == 'picker':
@@ -136,17 +136,17 @@ def _try_cobalt(url: str, output_path: str) -> str | None:
             picker = data.get('picker', [])
             video_items = [p for p in picker if p.get('type') == 'video']
             if not video_items:
-                print("[Download] Cobalt picker had no video items")
+                logger.warning("[Download] Cobalt picker had no video items")
                 return None
             download_url = video_items[0]['url']
         elif status in ('tunnel', 'redirect'):
             download_url = data.get('url')
         else:
-            print(f"[Download] Cobalt unexpected status: {status}")
+            logger.warning(f"[Download] Cobalt unexpected status: {status}")
             return None
 
         if not download_url:
-            print("[Download] Cobalt returned no download URL")
+            logger.warning("[Download] Cobalt returned no download URL")
             return None
 
         # Step 2: Download the actual file
@@ -159,7 +159,7 @@ def _try_cobalt(url: str, output_path: str) -> str | None:
 
         file_size = os.path.getsize(output_path)
         if file_size < 1024:
-            print(f"[Download] Cobalt file too small ({file_size} bytes), likely invalid")
+            logger.warning(f"[Download] Cobalt file too small ({file_size} bytes), likely invalid")
             os.remove(output_path)
             return None
 
