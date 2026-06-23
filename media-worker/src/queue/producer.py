@@ -27,20 +27,19 @@ from src.config import Config
 class JobProducer:
     def __init__(self):
         self._producer = None
-        self._mock = Config.IS_MOCK_MODE
 
-        if not self._mock:
-            try:
-                from confluent_kafka import Producer
+        try:
+            from confluent_kafka import Producer
 
-                self._producer = Producer({
-                    "bootstrap.servers": Config.KAFKA_BROKERS,
-                    "acks": "all",
-                })
-                print(f"[Kafka Producer] Ready → {Config.KAFKA_TOPIC_JOB_COMPLETED} @ {Config.KAFKA_BROKERS}")
-            except ImportError:
-                print("[WARN] confluent-kafka not installed. Switching to mock mode.")
-                self._mock = True
+            self._producer = Producer({
+                "bootstrap.servers": Config.KAFKA_BROKERS,
+                "acks": "all",
+            })
+            print(f"[Kafka Producer] Ready → {Config.KAFKA_TOPIC_JOB_COMPLETED} @ {Config.KAFKA_BROKERS}")
+        except ImportError:
+            print("[WARN] confluent-kafka not installed. Kafka producer disabled.")
+        except Exception as e:
+            print(f"[WARN] Kafka connection failed: {e}. Producer disabled.")
 
     def publish_completed(
         self,
@@ -88,9 +87,8 @@ class JobProducer:
         job_id = payload.get("job_id", "unknown")
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
-        if self._mock:
-            print(f"[MOCK Kafka Producer] Would publish to {Config.KAFKA_TOPIC_JOB_COMPLETED}:")
-            print(f"  job_id={job_id}, status={payload['status']}, risk_score={payload['risk_score']}")
+        if self._producer is None:
+            print(f"[Kafka Producer] No producer available, discarding message for {job_id}")
             return
 
         def _delivery_report(err, msg):

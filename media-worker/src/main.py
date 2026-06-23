@@ -20,10 +20,8 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 import requests
 
@@ -45,8 +43,6 @@ USE_PARALLEL_PASS1 = os.getenv("USE_PARALLEL_PASS1", "true").lower() == "true"
 
 # ─── Status Sync ───────────────────────────────────────────────────────────────
 
-_status_log: dict[str, list[dict]] = {}  # job_id → list of status updates received
-
 def _sync_status(job_id: str, status: str, failed_at_stage: Optional[str] = None):
     """PATCH the Go API Gateway internal endpoint to update job status."""
     url = f"{Config.GO_API_BASE_URL}/internal/v1/jobs/{job_id}/status"
@@ -67,70 +63,6 @@ def _sync_status(job_id: str, status: str, failed_at_stage: Optional[str] = None
             print(f"[MOCK Status Sync] {job_id} → {status} (mock server may not be running: {e})")
         else:
             print(f"[Status Sync] Could not PATCH {url}: {e}")
-
-
-# ─── Mock HTTP Server ──────────────────────────────────────────────────────────
-
-class _MockStatusHandler(BaseHTTPRequestHandler):
-    """Handles PATCH /internal/v1/jobs/<job_id>/status — logs requests for verification."""
-
-    def _parse_path(self):
-        parsed = urlparse(self.path)
-        return parsed.path, parsed.path.split("/")
-
-    def do_PATCH(self):
-        path, parts = self._parse_path()
-        if path.startswith("/internal/v1/jobs/") and path.endswith("/status"):
-            content_len = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(content_len)) if content_len > 0 else {}
-            job_id = parts[-2]
-            status = body.get("status", "unknown")
-
-            _status_log.setdefault(job_id, []).append(body)
-            print(f"[Mock API] PATCH /internal/v1/jobs/{job_id}/status → {status}")
-
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def log_message(self, format, *args):
-        pass  # suppress default HTTP server logging
-
-
-def _start_mock_server(host: str = "0.0.0.0", port: int = 8080) -> HTTPServer:
-    """Start a mock HTTP server on a background thread — returns the server instance."""
-    server = HTTPServer((host, port), _MockStatusHandler)
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
-    print(f"[Mock API] HTTP server listening on {host}:{port}")
-    return server
-
-
-def _custody_entry(stage: str, status: str = "OK") -> dict:
-    return {
-        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "stage": stage,
-        "status": status,
-    }
-
-
-def _patch_evidence_url(job_id: str, evidence_url: str):
-    """PATCH the Go API to update evidence_url on a completed job."""
-    url = f"{Config.GO_API_BASE_URL}/internal/v1/jobs/{job_id}/evidence"
-    headers = {
-        "Authorization": f"Bearer {Config.GO_API_INTERNAL_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    try:
-        resp = requests.patch(url, json={"evidence_url": evidence_url}, headers=headers, timeout=10)
-        resp.raise_for_status()
-        print(f"[Status Sync] {job_id} evidence_url updated OK")
-    except Exception as e:
-        print(f"[Status Sync] Could not PATCH evidence_url for {job_id}: {e}")
 
 
 # ─── Pipeline ──────────────────────────────────────────────────────────────────
@@ -303,40 +235,7 @@ def main():
     print(f"[Main] Media worker started. MOCK_MODE={Config.IS_MOCK_MODE}")
     WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ── Mock mode: start mock HTTP server, process synthetic job, then exit ───
-    if Config.IS_MOCK_MODE:
-        # Extract host/port from GO_API_BASE_URL for mock server
-        mock_port = 8080
-        if ":" in Config.GO_API_BASE_URL.split("//")[-1]:
-            mock_port = int(Config.GO_API_BASE_URL.split("//")[-1].split(":")[-1].rstrip("/"))
-        mock_server = _start_mock_server(host="0.0.0.0", port=mock_port)
-        print("[MOCK] Running single mock job to verify pipeline …\n")
-        mock_job = {
-            "job_id": "mock-job-00000000",
-            "url": "https://www.tiktok.com/@example/video/7123456789",
-            "platform": "tiktok",
-            "priority": 2,
-            "submitted_at": datetime.now(timezone.utc).isoformat(),
-            "inspector_id": "inspector-mock-001",
-        }
-        process_job(mock_job, downloader, gemini, soniox, pdf_gen, producer, cache)
-
-        # Verify status sync calls
-        received = _status_log.get("mock-job-00000000", [])
-        # Note: generating_evidence may appear asynchronously after completed
-        expected_core = ["downloading", "extracting", "analyzing", "aggregating", "completed"]
-        print(f"\n[MOCK] Status sync verification:")
-        print(f"  Expected {len(expected_core)} core status updates, received {len(received)}")
-        for exp in expected_core:
-            rec_statuses = [r.get("status", "?") for r in received]
-            ok = "✓" if exp in rec_statuses else "✗"
-            print(f"  {ok} {exp}")
-
-        mock_server.shutdown()
-        print("\n[MOCK] Pipeline verification complete.")
-        return
-
-    # ── Live mode: continuous Kafka loop ──────────────────────────────────────
+    # ── Always enter Kafka poll loop (mock mode uses mock AI responses) ──────
     print("[Main] Entering Kafka poll loop …")
     while running:
         try:

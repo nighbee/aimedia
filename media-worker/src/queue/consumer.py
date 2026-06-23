@@ -47,23 +47,25 @@ class JobMessage(BaseModel):
 class JobConsumer:
     def __init__(self):
         self._consumer = None
-        self._mock = Config.IS_MOCK_MODE
+        self._mock = False
 
-        if not self._mock:
-            try:
-                from confluent_kafka import Consumer, KafkaError
+        try:
+            from confluent_kafka import Consumer, KafkaError
 
-                self._consumer = Consumer({
-                    "bootstrap.servers": Config.KAFKA_BROKERS,
-                    "group.id": Config.KAFKA_GROUP_ID,
-                    "auto.offset.reset": "earliest",
-                    "enable.auto.commit": False,
-                })
-                self._consumer.subscribe([Config.KAFKA_TOPIC_JOB_CREATED])
-                print(f"[Kafka Consumer] Subscribed to {Config.KAFKA_TOPIC_JOB_CREATED} @ {Config.KAFKA_BROKERS} (group={Config.KAFKA_GROUP_ID})")
-            except ImportError:
-                print("[WARN] confluent-kafka not installed. Switching to mock mode.")
-                self._mock = True
+            self._consumer = Consumer({
+                "bootstrap.servers": Config.KAFKA_BROKERS,
+                "group.id": Config.KAFKA_GROUP_ID,
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+            })
+            self._consumer.subscribe([Config.KAFKA_TOPIC_JOB_CREATED])
+            print(f"[Kafka Consumer] Subscribed to {Config.KAFKA_TOPIC_JOB_CREATED} @ {Config.KAFKA_BROKERS} (group={Config.KAFKA_GROUP_ID})")
+        except ImportError:
+            print("[WARN] confluent-kafka not installed. Kafka consumer disabled.")
+            self._mock = True
+        except Exception as e:
+            print(f"[WARN] Kafka connection failed: {e}. Consumer disabled.")
+            self._mock = True
 
     def poll(self, timeout_s: float = 5.0) -> Optional[dict]:
         """
