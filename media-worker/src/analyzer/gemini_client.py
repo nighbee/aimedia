@@ -389,14 +389,19 @@ If nothing suspicious is found, return empty phrases array."""
         )
 
     def _ollama_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
-        user_prompt = (
-            "TRANSCRIPT:\n"
-            f"{transcript_text}\n\n"
-            f"KEYFRAMES: {len(keyframe_paths)} image(s) available, but local LLM is text-only. "
-            "Use the transcript to extract fraud signals. Return ONLY JSON."
-        )
-        req_id, raw = self._ollama_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
-        data = self._parse_json(raw)
+        try:
+            user_prompt = (
+                "TRANSCRIPT:\n"
+                f"{transcript_text}\n\n"
+                f"KEYFRAMES: {len(keyframe_paths)} image(s) available, but local LLM is text-only. "
+                "Use the transcript to extract fraud signals. Return ONLY JSON."
+            )
+            req_id, raw = self._ollama_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
+            data = self._parse_json(raw)
+        except Exception as e:
+            logger.warning(f"[Ollama] Pass 1 failed: {e}. Falling back to mock.")
+            return self._mock_pass1()
+
         phrases = [
             FlaggedPhrase(
                 text=p.get("text", ""),
@@ -428,17 +433,22 @@ If nothing suspicious is found, return empty phrases array."""
         )
 
     def _ollama_pass2(self, signals: SignalExtractionResult) -> RiskScoringResult:
-        signals_payload = {
-            "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
-            "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
-            "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
-        }
-        user_prompt = (
-            f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
-            "Score the risk per the schema and return ONLY JSON."
-        )
-        req_id, raw = self._ollama_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
-        data = self._parse_json(raw)
+        try:
+            signals_payload = {
+                "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
+                "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
+                "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
+            }
+            user_prompt = (
+                f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
+                "Score the risk per the schema and return ONLY JSON."
+            )
+            req_id, raw = self._ollama_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
+            data = self._parse_json(raw)
+        except Exception as e:
+            logger.warning(f"[Ollama] Pass 2 failed: {e}. Falling back to mock.")
+            return self._mock_pass2()
+
         top_flags = [
             TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
             for f in data.get("top_flags", [])
@@ -494,14 +504,19 @@ If nothing suspicious is found, return empty phrases array."""
         raise RuntimeError(f"Gemini API call failed after {max_retries} attempts") from last_error
 
     def _blackbox_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
-        user_prompt = (
-            "TRANSCRIPT:\n"
-            f"{transcript_text}\n\n"
-            f"KEYFRAMES: {len(keyframe_paths)} image(s) are available, but this fallback LLM is text-only. "
-            "Use the transcript and any obvious textual clues to extract fraud signals. Return ONLY JSON."
-        )
-        req_id, raw = self._blackbox_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
-        data = self._parse_json(raw)
+        try:
+            user_prompt = (
+                "TRANSCRIPT:\n"
+                f"{transcript_text}\n\n"
+                f"KEYFRAMES: {len(keyframe_paths)} image(s) are available, but this fallback LLM is text-only. "
+                "Use the transcript and any obvious textual clues to extract fraud signals. Return ONLY JSON."
+            )
+            req_id, raw = self._blackbox_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
+            data = self._parse_json(raw)
+        except Exception as e:
+            logger.warning(f"[Blackbox] Pass 1 failed: {e}. Falling back to mock.")
+            return self._mock_pass1()
+
         phrases = [
             FlaggedPhrase(
                 text=p.get("text", ""),
@@ -533,17 +548,22 @@ If nothing suspicious is found, return empty phrases array."""
         )
 
     def _blackbox_pass2(self, signals: SignalExtractionResult) -> RiskScoringResult:
-        signals_payload = {
-            "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
-            "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
-            "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
-        }
-        user_prompt = (
-            f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
-            "Score the risk per the schema and return ONLY JSON."
-        )
-        req_id, raw = self._blackbox_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
-        data = self._parse_json(raw)
+        try:
+            signals_payload = {
+                "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
+                "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
+                "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
+            }
+            user_prompt = (
+                f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
+                "Score the risk per the schema and return ONLY JSON."
+            )
+            req_id, raw = self._blackbox_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
+            data = self._parse_json(raw)
+        except Exception as e:
+            logger.warning(f"[Blackbox] Pass 2 failed: {e}. Falling back to mock.")
+            return self._mock_pass2()
+
         top_flags = [
             TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
             for f in data.get("top_flags", [])
