@@ -1,4 +1,4 @@
-CREATE TABLE analysis.results (
+CREATE TABLE IF NOT EXISTS analysis.results (
     id                       UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     job_id                   UUID NOT NULL REFERENCES core.jobs(id) ON DELETE CASCADE,
     illegal_gambling_score   SMALLINT NULL,
@@ -13,4 +13,4 @@ CREATE TABLE analysis.results (
     created_at               TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX idx_results_job_id ON analysis.results(job_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_results_job_id ON analysis.results(job_id);
