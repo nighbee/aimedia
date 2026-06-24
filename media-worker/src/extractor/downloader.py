@@ -93,7 +93,7 @@ def _try_ytdlp(url: str, output_path: str, cookies_file: str = None) -> str | No
 
 def _try_cobalt(url: str, output_path: str) -> str | None:
     """Attempt download via self-hosted Cobalt API. Returns path on success, None on failure."""
-    cobalt_url = Config.COBALT_API_URL.rstrip('/')
+    cobalt_url = f"{Config.COBALT_API_URL.rstrip('/')}/api/json"
 
     headers = {
         'Accept': 'application/json',
