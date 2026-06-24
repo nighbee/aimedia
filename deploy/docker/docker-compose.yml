@@ -1,3 +1,4 @@
+
 services:
   # Database Layer
   postgres:
@@ -131,11 +132,17 @@ services:
     container_name: aimedia-cobalt
     ports:
       - "9090:9090"
+    volumes:
+      # Mount your local key file into Cobalt's expected directory
+      - ./cobalt-key.json:/etc/cobalt/keys.json:ro
     environment:
       API_PORT: 9090
       API_LISTEN_URL: "0.0.0.0:9090"
       CORS_WILDCARD: "1"
       API_URL: "http://cobalt:9090"
+      # Enforce API Authentication and look at your mounted key list
+      API_AUTH_REQUIRED: "1"
+      API_KEY_URL: "file:///etc/cobalt/keys.json"
     deploy:
       resources:
         limits:
@@ -209,11 +216,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Server
       PORT: 8080
       ENV: development
       GOMAXPROCS: 1
-      # PostgreSQL
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: aimedia_user
@@ -222,16 +227,13 @@ services:
       DB_SSL_MODE: disable
       DB_MAX_OPEN_CONNS: 10
       DB_MAX_IDLE_CONNS: 5
-      # Kafka
       KAFKA_BROKERS: kafka:29092
       KAFKA_GROUP_ID: go-api-consumer
       KAFKA_TOPIC_JOB_CREATED: media.job.created
       KAFKA_TOPIC_JOB_COMPLETED: media.job.completed
-      # Auth
       JWT_SECRET: change-me-in-production
       JWT_EXPIRY_HOURS: 24
       GO_API_INTERNAL_TOKEN: internal-service-token-change-me
-      # S3 / MinIO
       S3_ENDPOINT: minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadminpass
@@ -264,45 +266,36 @@ services:
       dockerfile: Dockerfile
     container_name: ai
     environment:
-      # Kafka
       KAFKA_BROKERS: kafka:29092
       KAFKA_GROUP_ID: python-worker-consumer
       KAFKA_TOPIC_JOB_CREATED: media.job.created
       KAFKA_TOPIC_JOB_COMPLETED: media.job.completed
-      # Go API (status sync)
       GO_API_BASE_URL: http://go-api:8080
       GO_API_INTERNAL_TOKEN: internal-service-token-change-me
-      # External AI APIs (from .env file mounted into container)
       SONIOX_API_KEY: ${SONIOX_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: gemini-1.5-flash-latest
-      # S3 / MinIO
       S3_ENDPOINT: minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadminpass
       S3_BUCKET_NAME: evidence-packs
       S3_USE_SSL: "false"
-      # Cobalt API (fallback downloader)
+      # Cobalt Setup
       COBALT_API_URL: http://cobalt:9090
-      COBALT_API_KEY: ""
-      # Local AI — Ollama
+      # Dynamically extracts the clean string from your local json file
+      COBALT_API_KEY: ${COBALT_API_KEY:-} 
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: qwen2.5:1.5b
-      # Local AI — Whisper (runs inside worker)
       WHISPER_MODEL_SIZE: base
-      # yt-dlp cookies (mount a cookies.txt file into the container)
       YTDLP_COOKIES_FILE: ""
-      # Processing
       TMP_DIR: /tmp/mediawatch-jobs
       MAX_VIDEO_DURATION_SECONDS: 600
       KEYFRAME_INTERVAL_SECONDS: 3
       KEYFRAME_MAX_WIDTH_PX: 800
       AUDIO_SAMPLE_RATE_HZ: 16000
       EVIDENCE_RISK_THRESHOLD: 70
-      # Gemini rate limiting
       GEMINI_MAX_RETRIES: 3
       GEMINI_RETRY_BACKOFF_BASE_SECONDS: 2
-      # Pipeline optimizations
       USE_SCENE_DETECTION: "false"
       USE_PARALLEL_PASS1: "true"
     volumes:
@@ -311,7 +304,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 450M
+          memory: 1500M
         reservations:
           memory: 256M
     depends_on:
