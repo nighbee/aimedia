@@ -272,9 +272,9 @@ services:
       # Go API (status sync)
       GO_API_BASE_URL: http://go-api:8080
       GO_API_INTERNAL_TOKEN: internal-service-token-change-me
-      # External AI APIs (pass from host env, fall back to mock)
-      SONIOX_API_KEY: ${SONIOX_API_KEY:-mock_key}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-mock_key}
+      # External AI APIs (from .env file mounted into container)
+      SONIOX_API_KEY: ${SONIOX_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: gemini-1.5-flash-latest
       # S3 / MinIO
       S3_ENDPOINT: minio:9000
@@ -307,6 +307,7 @@ services:
       USE_PARALLEL_PASS1: "true"
     volumes:
       - /tmp/mediawatch-jobs:/tmp/mediawatch-jobs
+      - ../../media-worker/.env:/app/.env:ro
     deploy:
       resources:
         limits:

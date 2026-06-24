@@ -113,11 +113,11 @@ class EvidencePackGenerator:
             from weasyprint import HTML
             return HTML(string=html).write_pdf()
         except ImportError:
-            print("[EvidencePack] WeasyPrint not installed. Returning placeholder PDF bytes.")
-            return b"%PDF-1.4 MOCK EVIDENCE PACK"
+            raise RuntimeError(
+                "[EvidencePack] WeasyPrint not installed. Install with: pip install weasyprint"
+            )
         except Exception as e:
-            print(f"[EvidencePack] WeasyPrint render error: {e}. Returning placeholder.")
-            return b"%PDF-1.4 MOCK EVIDENCE PACK"
+            raise RuntimeError(f"[EvidencePack] WeasyPrint render error: {e}")
 
     @staticmethod
     def _store_pdf(job_id: str, pdf_bytes: bytes) -> str:

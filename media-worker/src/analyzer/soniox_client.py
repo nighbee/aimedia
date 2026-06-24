@@ -118,7 +118,7 @@ class SonioxClient:
             )
 
         except Exception as e:
-            logger.warning(f"[Soniox] API call failed: {e}. Falling back to Groq or mock transcript.")
+            logger.warning(f"[Soniox] API call failed: {e}. Falling back to Groq or Whisper.")
             return self._fallback_transcribe(audio_path)
 
     def close(self):

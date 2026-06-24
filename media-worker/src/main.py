@@ -100,8 +100,8 @@ def _sync_status(job_id: str, status: str, failed_at_stage: Optional[str] = None
         resp.raise_for_status()
         log_stage(job_id, "status-sync", f"→ {status} OK")
     except Exception as e:
-        if Config.IS_MOCK_MODE:
-            log_stage(job_id, "status-sync", f"→ {status} (mock: {e})", "warning")
+        if Config.HAS_LOCAL_AI:
+            log_stage(job_id, "status-sync", f"→ {status} (local mode: {e})", "warning")
         else:
             log_stage(job_id, "status-sync", f"PATCH failed {url}: {e}", "error")
 
@@ -356,10 +356,10 @@ def main():
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    logger.info(f"MOCK_MODE={Config.IS_MOCK_MODE}")
+    logger.info(f"LOCAL_MODE={Config.HAS_LOCAL_AI}")
     WORK_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ── Always enter Kafka poll loop (mock mode uses mock AI responses) ──────
+    # ── Always enter Kafka poll loop (local AI fallback when no cloud keys) ──
     logger.info("Entering Kafka poll loop…")
     poll_count = 0
     last_heartbeat = time.time()
