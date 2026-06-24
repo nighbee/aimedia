@@ -35,7 +35,7 @@ class BlackboxClient:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.1,
-            "response_format": {"type": "json_object"},
+            #"response_format": {"type": "json_object"},
         }
 
         headers = {

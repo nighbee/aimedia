@@ -12,7 +12,7 @@ Recommended models for 4GB VM:
 import json
 
 import requests
-
+import logging
 from src.config import Config
 
 
@@ -48,7 +48,7 @@ class OllamaClient:
             "system": system_prompt,
         }
 
-        logger.info(f"[Ollama] Chat request using model={self._model}")
+
         resp = requests.post(
             f"{self._base_url}/api/generate",
             json=payload,
