@@ -48,7 +48,7 @@ class OllamaClient:
             "system": system_prompt,
         }
 
-        print(f"[Ollama] Generate request using model={self._model}")
+        logger.info(f"[Ollama] Chat request using model={self._model}")
         resp = requests.post(
             f"{self._base_url}/api/generate",
             json=payload,

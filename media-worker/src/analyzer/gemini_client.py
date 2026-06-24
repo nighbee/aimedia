@@ -5,7 +5,7 @@ Pass 1 — Signal Extraction:  keyframes + transcript  → fraud signals JSON
   - Split into parallel sub-calls: visual scan + audio scan
 Pass 2 — Risk Scoring:       signals JSON            → risk score + categories JSON
 
-Falls back to deterministic mock output when GEMINI_API_KEY is not set.
+Fallback chain: Gemini → Blackbox → Ollama → raise on failure.
 """
 import base64
 import json
@@ -173,81 +173,46 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         keyframe_paths: list[str],
     ) -> SignalExtractionResult:
         """Pass 1: extract fraud signals from keyframes + transcript."""
-        if self._client is None and not self._use_blackbox() and not self._use_ollama():
-            return self._mock_pass1()
+        # Try Gemini first
+        if self._client is not None:
+            contents = self._build_image_parts(keyframe_paths)
+            contents.append({
+                "role": "user",
+                "parts": [
+                    {"text": f"TRANSCRIPT:\n{transcript_text}\n\nExtract all fraud signals per the schema."}
+                ]
+            })
+            try:
+                req_id, raw = self._call_with_retry(self.PASS1_SYSTEM_PROMPT, contents)
+                return self._parse_pass1_response(req_id, raw)
+            except Exception:
+                logger.warning("[Gemini] Pass 1 Gemini failed. Trying Blackbox...")
 
-        if self._client is None and self._use_blackbox():
-            return self._blackbox_pass1(transcript_text, keyframe_paths)
+        # Fallback 1: Blackbox
+        if self._use_blackbox():
+            try:
+                return self._blackbox_pass1(transcript_text, keyframe_paths)
+            except Exception as e:
+                logger.warning(f"[Blackbox] Pass 1 failed: {e}. Trying Ollama...")
 
-        if self._client is None and self._use_ollama():
+        # Fallback 2: Ollama
+        if self._use_ollama():
             return self._ollama_pass1(transcript_text, keyframe_paths)
 
-        # Build content parts: images then transcript
-        contents = self._build_image_parts(keyframe_paths)
-        contents.append({
-            "role": "user",
-            "parts": [
-                {"text": f"TRANSCRIPT:\n{transcript_text}\n\nExtract all fraud signals per the schema."}
-            ]
-        })
-
-        try:
-            req_id, raw = self._call_with_retry(self.PASS1_SYSTEM_PROMPT, contents)
-        except Exception:
-            logger.warning("[Gemini] Pass 1 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
-            if self._use_blackbox():
-                return self._blackbox_pass1(transcript_text, keyframe_paths)
-            if self._use_ollama():
-                return self._ollama_pass1(transcript_text, keyframe_paths)
-            return self._mock_pass1()
-
-        data = self._parse_json(raw)
-
-        phrases = [
-            FlaggedPhrase(
-                text=p.get("text", ""),
-                timestamp_s=int(p.get("timestamp_s", 0)),
-                category=p.get("category", "other"),
-            )
-            for p in data.get("phrases", [])
-        ]
-        visual_markers = [
-            VisualMarker(
-                frame_index=int(v.get("frame_index", 0)),
-                description=v.get("description", ""),
-                category=v.get("category", "other"),
-            )
-            for v in data.get("visual_markers", [])
-        ]
-        entities = [
-            DetectedEntity(
-                name=e.get("name", ""),
-                entity_type=e.get("type", "brand"),
-            )
-            for e in data.get("entities", [])
-        ]
-
-        return SignalExtractionResult(
-            phrases=phrases,
-            visual_markers=visual_markers,
-            entities=entities,
-            gemini_pass1_request_id=req_id,
-        )
+        # All providers exhausted
+        raise RuntimeError("All LLM providers failed for Pass 1 (Gemini, Blackbox, Ollama)")
 
     def pass1_extract_signals_parallel(
         self,
         transcript_text: str,
         keyframe_paths: list[str],
     ) -> SignalExtractionResult:
-        """Pass 1 split into two parallel sub-calls: visual scan + audio scan."""
-        if self._client is None and not self._use_blackbox() and not self._use_ollama():
-            return self._mock_pass1()
-
-        if self._client is None and self._use_blackbox():
-            return self._blackbox_pass1(transcript_text, keyframe_paths)
-
-        if self._client is None and self._use_ollama():
-            return self._ollama_pass1(transcript_text, keyframe_paths)
+        """Pass 1 split into two parallel sub-calls: visual scan + audio scan.
+        Only available when Gemini client is present (needs multimodal). Falls back
+        to sequential pass1_extract_signals for text-only providers (Ollama/Blackbox).
+        """
+        if self._client is None:
+            return self.pass1_extract_signals(transcript_text, keyframe_paths)
 
         def _visual_scan() -> tuple[list[VisualMarker], list[DetectedEntity], str]:
             system_prompt = """You are a fraud-signal extractor. Given ONLY video keyframes (no transcript), identify suspicious visual elements and return ONLY JSON.
@@ -264,11 +229,7 @@ If nothing suspicious is found, return empty arrays."""
                 "parts": [{"text": "Analyze these video keyframes for fraud-related visual signals. Return ONLY JSON."}]
             })
 
-            try:
-                req_id, raw = self._call_with_retry(system_prompt, contents)
-            except Exception:
-                logger.warning("[Gemini] Visual scan retries exhausted.")
-                return [], [], "visual-scan-failed"
+            req_id, raw = self._call_with_retry(system_prompt, contents)
 
             data = self._parse_json(raw)
             markers = [
@@ -301,11 +262,7 @@ If nothing suspicious is found, return empty phrases array."""
                 "parts": [{"text": f"TRANSCRIPT:\n{transcript_text}\n\nExtract fraud-related spoken phrases. Return ONLY JSON."}]
             }]
 
-            try:
-                req_id, raw = self._call_with_retry(system_prompt, contents)
-            except Exception:
-                logger.warning("[Gemini] Audio scan retries exhausted.")
-                return [], "audio-scan-failed"
+            req_id, raw = self._call_with_retry(system_prompt, contents)
 
             data = self._parse_json(raw)
             phrases = [
@@ -337,135 +294,59 @@ If nothing suspicious is found, return empty phrases array."""
 
     def pass2_score_risk(self, signals: SignalExtractionResult) -> RiskScoringResult:
         """Pass 2: score risk from extracted signals."""
-        if self._client is None and not self._use_blackbox() and not self._use_ollama():
-            return self._mock_pass2()
-
-        if self._client is None and self._use_blackbox():
-            return self._blackbox_pass2(signals)
-
-        if self._client is None and self._use_ollama():
-            return self._ollama_pass2(signals)
-
-        signals_payload = {
-            "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
-            "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
-            "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
-        }
-
-        contents = [{
-            "role": "user",
-            "parts": [{"text": f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\nScore the risk per the schema."}]
-        }]
-
-        try:
-            req_id, raw = self._call_with_retry(self.PASS2_SYSTEM_PROMPT, contents)
-        except Exception:
-            logger.warning("[Gemini] Pass 2 all retries exhausted. Falling back to Blackbox, Ollama, or mock output.")
-            if self._use_blackbox():
-                return self._blackbox_pass2(signals)
-            if self._use_ollama():
-                return self._ollama_pass2(signals)
-            return self._mock_pass2()
-
-        data = self._parse_json(raw)
-
-        top_flags = [
-            TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
-            for f in data.get("top_flags", [])
-        ]
-
-        return RiskScoringResult(
-            risk_score=int(data.get("risk_score", 0)),
-            confidence=data.get("confidence", "low"),
-            categories={
-                "illegal_gambling": int(data.get("categories", {}).get("illegal_gambling", 0)),
-                "pyramid_scheme": int(data.get("categories", {}).get("pyramid_scheme", 0)),
-                "investment_fraud": int(data.get("categories", {}).get("investment_fraud", 0)),
-                "referral_scheme": int(data.get("categories", {}).get("referral_scheme", 0)),
-            },
-            reasoning=data.get("reasoning", ""),
-            top_flags=top_flags,
-            gemini_pass2_request_id=req_id,
-        )
-
-    def _ollama_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
-        try:
-            user_prompt = (
-                "TRANSCRIPT:\n"
-                f"{transcript_text}\n\n"
-                f"KEYFRAMES: {len(keyframe_paths)} image(s) available, but local LLM is text-only. "
-                "Use the transcript to extract fraud signals. Return ONLY JSON."
-            )
-            req_id, raw = self._ollama_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
-            data = self._parse_json(raw)
-        except Exception as e:
-            logger.warning(f"[Ollama] Pass 1 failed: {e}. Falling back to mock.")
-            return self._mock_pass1()
-
-        phrases = [
-            FlaggedPhrase(
-                text=p.get("text", ""),
-                timestamp_s=int(p.get("timestamp_s", 0)),
-                category=p.get("category", "other"),
-            )
-            for p in data.get("phrases", [])
-        ]
-        visual_markers = [
-            VisualMarker(
-                frame_index=int(v.get("frame_index", 0)),
-                description=v.get("description", ""),
-                category=v.get("category", "other"),
-            )
-            for v in data.get("visual_markers", [])
-        ]
-        entities = [
-            DetectedEntity(
-                name=e.get("name", ""),
-                entity_type=e.get("type", "brand"),
-            )
-            for e in data.get("entities", [])
-        ]
-        return SignalExtractionResult(
-            phrases=phrases,
-            visual_markers=visual_markers,
-            entities=entities,
-            gemini_pass1_request_id=req_id,
-        )
-
-    def _ollama_pass2(self, signals: SignalExtractionResult) -> RiskScoringResult:
-        try:
+        # Try Gemini first
+        if self._client is not None:
             signals_payload = {
                 "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
                 "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
                 "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
             }
-            user_prompt = (
-                f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
-                "Score the risk per the schema and return ONLY JSON."
-            )
-            req_id, raw = self._ollama_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
-            data = self._parse_json(raw)
-        except Exception as e:
-            logger.warning(f"[Ollama] Pass 2 failed: {e}. Falling back to mock.")
-            return self._mock_pass2()
+            contents = [{
+                "role": "user",
+                "parts": [{"text": f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\nScore the risk per the schema."}]
+            }]
+            try:
+                req_id, raw = self._call_with_retry(self.PASS2_SYSTEM_PROMPT, contents)
+                return self._parse_pass2_response(req_id, raw)
+            except Exception:
+                logger.warning("[Gemini] Pass 2 Gemini failed. Trying Blackbox...")
 
-        top_flags = [
-            TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
-            for f in data.get("top_flags", [])
-        ]
-        return RiskScoringResult(
-            risk_score=int(data.get("risk_score", 0)),
-            confidence=data.get("confidence", "low"),
-            categories={
-                "illegal_gambling": int(data.get("categories", {}).get("illegal_gambling", 0)),
-                "pyramid_scheme": int(data.get("categories", {}).get("pyramid_scheme", 0)),
-                "investment_fraud": int(data.get("categories", {}).get("investment_fraud", 0)),
-                "referral_scheme": int(data.get("categories", {}).get("referral_scheme", 0)),
-            },
-            reasoning=data.get("reasoning", ""),
-            top_flags=top_flags,
-            gemini_pass2_request_id=req_id,
+        # Fallback 1: Blackbox
+        if self._use_blackbox():
+            try:
+                return self._blackbox_pass2(signals)
+            except Exception as e:
+                logger.warning(f"[Blackbox] Pass 2 failed: {e}. Trying Ollama...")
+
+        # Fallback 2: Ollama
+        if self._use_ollama():
+            return self._ollama_pass2(signals)
+
+        # All providers exhausted
+        raise RuntimeError("All LLM providers failed for Pass 2 (Gemini, Blackbox, Ollama)")
+
+    def _ollama_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
+        user_prompt = (
+            "TRANSCRIPT:\n"
+            f"{transcript_text}\n\n"
+            f"KEYFRAMES: {len(keyframe_paths)} image(s) available, but local LLM is text-only. "
+            "Use the transcript to extract fraud signals. Return ONLY JSON."
         )
+        req_id, raw = self._ollama_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
+        return self._parse_pass1_response(req_id, raw)
+
+    def _ollama_pass2(self, signals: SignalExtractionResult) -> RiskScoringResult:
+        signals_payload = {
+            "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
+            "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
+            "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
+        }
+        user_prompt = (
+            f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
+            "Score the risk per the schema and return ONLY JSON."
+        )
+        req_id, raw = self._ollama_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
+        return self._parse_pass2_response(req_id, raw)
 
     def _call_with_retry(
         self,
@@ -504,83 +385,27 @@ If nothing suspicious is found, return empty phrases array."""
         raise RuntimeError(f"Gemini API call failed after {max_retries} attempts") from last_error
 
     def _blackbox_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
-        try:
-            user_prompt = (
-                "TRANSCRIPT:\n"
-                f"{transcript_text}\n\n"
-                f"KEYFRAMES: {len(keyframe_paths)} image(s) are available, but this fallback LLM is text-only. "
-                "Use the transcript and any obvious textual clues to extract fraud signals. Return ONLY JSON."
-            )
-            req_id, raw = self._blackbox_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
-            data = self._parse_json(raw)
-        except Exception as e:
-            logger.warning(f"[Blackbox] Pass 1 failed: {e}. Falling back to mock.")
-            return self._mock_pass1()
-
-        phrases = [
-            FlaggedPhrase(
-                text=p.get("text", ""),
-                timestamp_s=int(p.get("timestamp_s", 0)),
-                category=p.get("category", "other"),
-            )
-            for p in data.get("phrases", [])
-        ]
-        visual_markers = [
-            VisualMarker(
-                frame_index=int(v.get("frame_index", 0)),
-                description=v.get("description", ""),
-                category=v.get("category", "other"),
-            )
-            for v in data.get("visual_markers", [])
-        ]
-        entities = [
-            DetectedEntity(
-                name=e.get("name", ""),
-                entity_type=e.get("type", "brand"),
-            )
-            for e in data.get("entities", [])
-        ]
-        return SignalExtractionResult(
-            phrases=phrases,
-            visual_markers=visual_markers,
-            entities=entities,
-            gemini_pass1_request_id=req_id,
+        user_prompt = (
+            "TRANSCRIPT:\n"
+            f"{transcript_text}\n\n"
+            f"KEYFRAMES: {len(keyframe_paths)} image(s) are available, but this fallback LLM is text-only. "
+            "Use the transcript and any obvious textual clues to extract fraud signals. Return ONLY JSON."
         )
+        req_id, raw = self._blackbox_client.chat_json(self.PASS1_SYSTEM_PROMPT, user_prompt)
+        return self._parse_pass1_response(req_id, raw)
 
     def _blackbox_pass2(self, signals: SignalExtractionResult) -> RiskScoringResult:
-        try:
-            signals_payload = {
-                "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
-                "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
-                "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
-            }
-            user_prompt = (
-                f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
-                "Score the risk per the schema and return ONLY JSON."
-            )
-            req_id, raw = self._blackbox_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
-            data = self._parse_json(raw)
-        except Exception as e:
-            logger.warning(f"[Blackbox] Pass 2 failed: {e}. Falling back to mock.")
-            return self._mock_pass2()
-
-        top_flags = [
-            TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
-            for f in data.get("top_flags", [])
-        ]
-        return RiskScoringResult(
-            risk_score=int(data.get("risk_score", 0)),
-            confidence=data.get("confidence", "low"),
-            categories={
-                "illegal_gambling": int(data.get("categories", {}).get("illegal_gambling", 0)),
-                "pyramid_scheme": int(data.get("categories", {}).get("pyramid_scheme", 0)),
-                "investment_fraud": int(data.get("categories", {}).get("investment_fraud", 0)),
-                "referral_scheme": int(data.get("categories", {}).get("referral_scheme", 0)),
-            },
-            reasoning=data.get("reasoning", ""),
-            top_flags=top_flags,
-            gemini_pass2_request_id=req_id,
+        signals_payload = {
+            "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
+            "visual_markers": [{"frame_index": v.frame_index, "description": v.description, "category": v.category} for v in signals.visual_markers],
+            "entities": [{"name": e.name, "type": e.entity_type} for e in signals.entities],
+        }
+        user_prompt = (
+            f"SIGNALS:\n{json.dumps(signals_payload, ensure_ascii=False)}\n\n"
+            "Score the risk per the schema and return ONLY JSON."
         )
+        req_id, raw = self._blackbox_client.chat_json(self.PASS2_SYSTEM_PROMPT, user_prompt)
+        return self._parse_pass2_response(req_id, raw)
 
     def _build_image_parts(self, keyframe_paths: list[str]) -> list:
         """Encode up to 20 keyframes as base64 inline images."""
@@ -611,48 +436,56 @@ If nothing suspicious is found, return empty phrases array."""
             logger.warning(f"[Gemini] JSON parse error: {e}. Raw: {raw[:200]}")
             return {}
 
-    # ── Mock helpers ────────────────────────────────────────────────────────────
+    # ── Response parsers ───────────────────────────────────────────────────────
 
-    @staticmethod
-    def _mock_pass1() -> SignalExtractionResult:
-        logger.info("[MOCK] Returning mock Pass-1 signal extraction result.")
+    def _parse_pass1_response(self, req_id: str, raw: str) -> SignalExtractionResult:
+        data = self._parse_json(raw)
+        phrases = [
+            FlaggedPhrase(
+                text=p.get("text", ""),
+                timestamp_s=int(p.get("timestamp_s", 0)),
+                category=p.get("category", "other"),
+            )
+            for p in data.get("phrases", [])
+        ]
+        visual_markers = [
+            VisualMarker(
+                frame_index=int(v.get("frame_index", 0)),
+                description=v.get("description", ""),
+                category=v.get("category", "other"),
+            )
+            for v in data.get("visual_markers", [])
+        ]
+        entities = [
+            DetectedEntity(
+                name=e.get("name", ""),
+                entity_type=e.get("type", "brand"),
+            )
+            for e in data.get("entities", [])
+        ]
         return SignalExtractionResult(
-            phrases=[
-                FlaggedPhrase(text="guaranteed 100% income", timestamp_s=12, category="investment_fraud"),
-                FlaggedPhrase(text="переходи по реферальной ссылке", timestamp_s=34, category="referral_scheme"),
-            ],
-            visual_markers=[
-                VisualMarker(frame_index=7, description="1xBet logo overlay visible in top-right corner", category="illegal_gambling"),
-                VisualMarker(frame_index=14, description="Aggressive call-to-action banner with phone number", category="referral_scheme"),
-            ],
-            entities=[
-                DetectedEntity(name="1xBet", entity_type="brand"),
-                DetectedEntity(name="@finance_guru", entity_type="person"),
-            ],
-            gemini_pass1_request_id="mock-gemini-pass1-001",
+            phrases=phrases,
+            visual_markers=visual_markers,
+            entities=entities,
+            gemini_pass1_request_id=req_id,
         )
 
-    @staticmethod
-    def _mock_pass2() -> RiskScoringResult:
-        logger.info("[MOCK] Returning mock Pass-2 risk scoring result.")
+    def _parse_pass2_response(self, req_id: str, raw: str) -> RiskScoringResult:
+        data = self._parse_json(raw)
+        top_flags = [
+            TopFlag(signal=f.get("signal", ""), weight=f.get("weight", "low"))
+            for f in data.get("top_flags", [])
+        ]
         return RiskScoringResult(
-            risk_score=88,
-            confidence="high",
+            risk_score=int(data.get("risk_score", 0)),
+            confidence=data.get("confidence", "low"),
             categories={
-                "illegal_gambling": 91,
-                "pyramid_scheme": 42,
-                "investment_fraud": 65,
-                "referral_scheme": 78,
+                "illegal_gambling": int(data.get("categories", {}).get("illegal_gambling", 0)),
+                "pyramid_scheme": int(data.get("categories", {}).get("pyramid_scheme", 0)),
+                "investment_fraud": int(data.get("categories", {}).get("investment_fraud", 0)),
+                "referral_scheme": int(data.get("categories", {}).get("referral_scheme", 0)),
             },
-            reasoning=(
-                "High risk (88/100). Soniox detected guaranteed income promise at 0:12. "
-                "Gemini identified 1xBet logo overlay at frame 7 and aggressive referral "
-                "call-to-action at frame 14."
-            ),
-            top_flags=[
-                TopFlag(signal="guaranteed income phrase at 0:12", weight="high"),
-                TopFlag(signal="1xBet logo frame 7", weight="high"),
-                TopFlag(signal="referral call-to-action frame 14", weight="medium"),
-            ],
-            gemini_pass2_request_id="mock-gemini-pass2-001",
+            reasoning=data.get("reasoning", ""),
+            top_flags=top_flags,
+            gemini_pass2_request_id=req_id,
         )

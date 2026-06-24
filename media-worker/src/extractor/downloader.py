@@ -15,18 +15,11 @@ class VideoDownloader:
       Layer 1: yt-dlp with browser cookies (if cookies file provided)
       Layer 2: yt-dlp without cookies (default)
       Layer 3: Cobalt API (self-hosted, multi-platform)
-      Layer 4: Mock placeholder (last resort)
     """
 
     @staticmethod
     def download(url: str, output_path: str) -> str:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-        if Config.IS_MOCK_MODE:
-            logger.info(f"[MOCK] Simulating video download from: {url}")
-            with open(output_path, 'wb') as f:
-                f.write(b"MOCK VIDEO CONTENT")
-            return os.path.abspath(output_path)
 
         # Layer 1: yt-dlp with cookies
         if Config.YTDLP_COOKIES_FILE and os.path.isfile(Config.YTDLP_COOKIES_FILE):
@@ -51,11 +44,8 @@ class VideoDownloader:
                 return result
             logger.info("[Download] Cobalt API failed, trying next layer...")
 
-        # Layer 4: Mock fallback (last resort)
-        logger.info("[Download] All download methods failed. Writing mock placeholder.")
-        with open(output_path, 'wb') as f:
-            f.write(b"MOCK VIDEO CONTENT")
-        return os.path.abspath(output_path)
+        # All methods exhausted
+        raise RuntimeError(f"All download methods failed for URL: {url[:100]}")
 
 
 def _try_ytdlp(url: str, output_path: str, cookies_file: str = None) -> str | None:
@@ -163,9 +153,9 @@ def _try_cobalt(url: str, output_path: str) -> str | None:
             os.remove(output_path)
             return None
 
-        print(f"[Download] Cobalt download complete ({file_size} bytes)")
+        logger.info(f"[Download] Cobalt download complete ({file_size} bytes)")
         return os.path.abspath(output_path)
 
     except Exception as e:
-        print(f"[Download] Cobalt error: {e}")
+        logger.warning(f"[Download] Cobalt error: {e}")
         return None

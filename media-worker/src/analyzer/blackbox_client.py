@@ -5,11 +5,14 @@ primary LLM provider is unavailable.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import requests
 
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class BlackboxClient:
@@ -40,7 +43,7 @@ class BlackboxClient:
             "Content-Type": "application/json",
         }
 
-        print(f"[Blackbox] Chat completion request using model={self._model}")
+        logger.info(f"[Blackbox] Chat completion request using model={self._model}")
         response = requests.post(
             f"{self._base_url}/chat/completions",
             headers=headers,

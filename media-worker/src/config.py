@@ -64,23 +64,11 @@ class Config:
     USE_PARALLEL_PASS1 = os.getenv("USE_PARALLEL_PASS1", "true").lower() == "true"
 
 
-def _is_mock_mode() -> bool:
-    """Determine if all external AI providers are unavailable or set to mock."""
-    keys = [
-        Config.SONIOX_API_KEY,
-        Config.GROQ_API_KEY,
-        Config.GEMINI_API_KEY,
-        Config.BLACKBOX_API_KEY,
-    ]
-    return all(not k or k == "mock_key" for k in keys)
-
-
 def _has_provider(key: str) -> bool:
     return bool(key and key != "mock_key")
 
 
 # Derived flags (computed at import time after all env vars are loaded)
-Config.IS_MOCK_MODE = _is_mock_mode()
 Config.HAS_SONIOX = _has_provider(Config.SONIOX_API_KEY)
 Config.HAS_GROQ = _has_provider(Config.GROQ_API_KEY)
 Config.HAS_GEMINI = _has_provider(Config.GEMINI_API_KEY)
@@ -104,8 +92,8 @@ def _validate():
     print(f"TMP_DIR: {Config.TMP_DIR}")
     print(f"STT provider available: {Config.HAS_STT_PROVIDER}")
     print(f"LLM provider available: {Config.HAS_LLM_PROVIDER}")
-    print(f"MOCK MODE ACTIVE: {Config.IS_MOCK_MODE}")
     print(f"OLLAMA_URL: {Config.OLLAMA_URL}")
+    print(f"OLLAMA_MODEL: {Config.OLLAMA_MODEL}")
     print(f"COBALT_API_URL: {Config.COBALT_API_URL}")
     print("------------------------------------")
 

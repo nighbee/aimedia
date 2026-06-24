@@ -1,10 +1,9 @@
 """
 Soniox Speech-to-Text Client
 Supports KZ/RU code-switched transcription.
-Fallback chain: Soniox → Groq → Whisper (local) → Mock
+Fallback chain: Soniox → Groq → Whisper (local)
 """
 import logging
-from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -64,27 +63,24 @@ class SonioxClient:
                 logger.warning(f"[Whisper] Client init failed: {e}")
 
         if self._whisper_client is not None:
-            try:
-                wt = self._whisper_client.transcribe(audio_path)
-                return TranscriptResult(
-                    text=wt.text,
-                    tokens=[
-                        TranscriptToken(
-                            text=t.text,
-                            start_ms=t.start_ms,
-                            end_ms=t.end_ms,
-                            confidence=t.confidence,
-                            language=t.language,
-                        )
-                        for t in wt.tokens
-                    ],
-                    soniox_job_id=f"whisper-{wt.whisper_model}",
-                )
-            except Exception as e:
-                logger.warning(f"[Whisper] Local transcription failed: {e}")
+            wt = self._whisper_client.transcribe(audio_path)
+            return TranscriptResult(
+                text=wt.text,
+                tokens=[
+                    TranscriptToken(
+                        text=t.text,
+                        start_ms=t.start_ms,
+                        end_ms=t.end_ms,
+                        confidence=t.confidence,
+                        language=t.language,
+                    )
+                    for t in wt.tokens
+                ],
+                soniox_job_id=f"whisper-{wt.whisper_model}",
+            )
 
-        # Layer 3: Mock (last resort)
-        return self._mock_transcription(audio_path)
+        # All STT providers exhausted
+        raise RuntimeError("No STT provider available (Soniox, Groq, and local Whisper all failed)")
 
     def transcribe(self, audio_path: str) -> TranscriptResult:
         """
@@ -131,27 +127,3 @@ class SonioxClient:
                 self._client.close()
             except Exception:
                 pass
-
-    @staticmethod
-    def _mock_transcription(audio_path: str) -> TranscriptResult:
-        logger.info(f"[MOCK] Generating mock transcript for: {audio_path}")
-        mock_tokens = [
-            TranscriptToken(text="Сіздің", start_ms=0, end_ms=500, confidence=0.95, language="kk"),
-            TranscriptToken(text="инвестицияңыз", start_ms=500, end_ms=1200, confidence=0.93, language="kk"),
-            TranscriptToken(text="100%", start_ms=1200, end_ms=1600, confidence=0.98, language="kk"),
-            TranscriptToken(text="кірісті", start_ms=1600, end_ms=2100, confidence=0.91, language="kk"),
-            TranscriptToken(text="қамтамасыз", start_ms=2100, end_ms=2700, confidence=0.89, language="kk"),
-            TranscriptToken(text="етеді", start_ms=2700, end_ms=3000, confidence=0.94, language="kk"),
-            TranscriptToken(text="Переходи", start_ms=3000, end_ms=3500, confidence=0.96, language="ru"),
-            TranscriptToken(text="по", start_ms=3500, end_ms=3700, confidence=0.97, language="ru"),
-            TranscriptToken(text="ссылке", start_ms=3700, end_ms=4200, confidence=0.95, language="ru"),
-            TranscriptToken(text="и", start_ms=4200, end_ms=4400, confidence=0.98, language="ru"),
-            TranscriptToken(text="получи", start_ms=4400, end_ms=4900, confidence=0.95, language="ru"),
-            TranscriptToken(text="бонус", start_ms=4900, end_ms=5400, confidence=0.94, language="ru"),
-        ]
-        full_text = " ".join(t.text for t in mock_tokens)
-        return TranscriptResult(
-            text=full_text,
-            tokens=mock_tokens,
-            soniox_job_id="mock-soniox-job-001",
-        )

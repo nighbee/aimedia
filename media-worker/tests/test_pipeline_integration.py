@@ -200,7 +200,7 @@ class TestGeminiMock:
         assert len(result.phrases) == 2
         assert len(result.visual_markers) == 2
         assert len(result.entities) == 2
-        assert result.gemini_pass1_request_id.startswith("mock")
+        assert result.gemini_pass1_request_id.startswith("test-req")
 
     def test_mock_pass2_returns_risk(self, mock_gemini_client):
         from src.analyzer.gemini_client import SignalExtractionResult, FlaggedPhrase

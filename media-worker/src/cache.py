@@ -6,12 +6,15 @@ pipeline (download, extract, transcribe, analyze) is skipped.
 """
 import hashlib
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Optional
 
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class ContentCache:
@@ -33,7 +36,7 @@ class ContentCache:
         try:
             self._index_path.write_text(json.dumps(self._index, indent=2))
         except OSError as e:
-            print(f"[Cache] Failed to save index: {e}")
+            logger.warning(f"[Cache] Failed to save index: {e}")
 
     @staticmethod
     def _url_hash(url: str) -> str:
@@ -51,10 +54,10 @@ class ContentCache:
         if time.time() - created > ttl_hours * 3600:
             del self._index[key]
             self._save_index()
-            print(f"[Cache] Expired entry for {url[:60]}...")
+            logger.info(f"[Cache] Expired entry for {url[:60]}...")
             return None
 
-        print(f"[Cache] HIT for {url[:60]}... (age {int((time.time() - created) / 60)}min)")
+        logger.info(f"[Cache] HIT for {url[:60]}... (age {int((time.time() - created) / 60)}min)")
         return entry.get("result")
 
     def put(self, url: str, result: dict):
@@ -65,9 +68,9 @@ class ContentCache:
             "created_at": time.time(),
         }
         self._save_index()
-        print(f"[Cache] Stored result for {url[:60]}...")
+        logger.info(f"[Cache] Stored result for {url[:60]}...")
 
     def clear(self):
         self._index.clear()
         self._save_index()
-        print("[Cache] Cleared all entries")
+        logger.info("[Cache] Cleared all entries")

@@ -10,12 +10,15 @@ Model sizes:
   small  — 244 MB, better accuracy, slower on CPU
   medium — 769 MB, best accuracy, needs ~1.5GB RAM
 """
+import logging
 from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class WhisperToken(BaseModel):
@@ -44,25 +47,25 @@ class WhisperClient:
 
         try:
             from faster_whisper import WhisperModel
-            print(f"[Whisper] Loading model '{self._model_size}' (first run may download)...")
+            logger.info(f"[Whisper] Loading model '{self._model_size}' (first run may download)...")
             self._model = WhisperModel(
                 self._model_size,
                 device="cpu",
                 compute_type="int8",
             )
-            print(f"[Whisper] Model loaded.")
+            logger.info(f"[Whisper] Model loaded.")
         except ImportError:
-            print("[WARN] faster-whisper not installed. Install with: pip install faster-whisper")
+            logger.warning("[WARN] faster-whisper not installed. Install with: pip install faster-whisper")
             raise
         except Exception as e:
-            print(f"[Whisper] Failed to load model: {e}")
+            logger.warning(f"[Whisper] Failed to load model: {e}")
             raise
 
     def transcribe(self, audio_path: str) -> WhisperTranscript:
         """Transcribe audio file using local Whisper model."""
         self._ensure_model()
 
-        print(f"[Whisper] Transcribing: {audio_path}")
+        logger.info(f"[Whisper] Transcribing: {audio_path}")
         segments, info = self._model.transcribe(
             audio_path,
             beam_size=5,
@@ -96,7 +99,7 @@ class WhisperClient:
         full_text = " ".join(full_text_parts)
         detected_lang = info.language or "unknown"
 
-        print(f"[Whisper] Done: {len(tokens)} segments, language={detected_lang}")
+        logger.info(f"[Whisper] Done: {len(tokens)} segments, language={detected_lang}")
         return WhisperTranscript(
             text=full_text,
             tokens=tokens,

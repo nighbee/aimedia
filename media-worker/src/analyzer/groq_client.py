@@ -4,11 +4,14 @@ Uses Groq's OpenAI-compatible transcription API when Soniox is unavailable.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import requests
 from src.config import Config
+
+logger = logging.getLogger("media-worker")
 
 
 class GroqClient:
@@ -34,7 +37,7 @@ class GroqClient:
             "timestamp_granularities[]": "segment",
         }
 
-        print(f"[Groq STT] Transcribing audio: {audio_path}")
+        logger.info(f"[Groq STT] Transcribing audio: {audio_path}")
         with path.open("rb") as audio_file:
             files = {"file": (path.name, audio_file, "audio/mpeg")}
             response = requests.post(
