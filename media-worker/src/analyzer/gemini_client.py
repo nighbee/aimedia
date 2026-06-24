@@ -5,7 +5,7 @@ Pass 1 — Signal Extraction:  keyframes + transcript  → fraud signals JSON
   - Split into parallel sub-calls: visual scan + audio scan
 Pass 2 — Risk Scoring:       signals JSON            → risk score + categories JSON
 
-Fallback chain: Gemini → Blackbox → Ollama → raise on failure.
+Fallback chain: Ollama (local) → Gemini → Blackbox → raise on failure.
 """
 import base64
 import json
@@ -173,7 +173,14 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
         keyframe_paths: list[str],
     ) -> SignalExtractionResult:
         """Pass 1: extract fraud signals from keyframes + transcript."""
-        # Try Gemini first
+        # Try Ollama first (local — text-only, skips visual analysis)
+        if self._use_ollama():
+            try:
+                return self._ollama_pass1(transcript_text, keyframe_paths)
+            except Exception as e:
+                logger.warning(f"[Ollama] Pass 1 failed: {e}. Trying Gemini...")
+
+        # Fallback 1: Gemini (multimodal — can analyze keyframes + transcript)
         if self._client is not None:
             contents = self._build_image_parts(keyframe_paths)
             contents.append({
@@ -188,19 +195,12 @@ Score 0 if no evidence. Score 70+ only for clear, direct violations."""
             except Exception:
                 logger.warning("[Gemini] Pass 1 Gemini failed. Trying Blackbox...")
 
-        # Fallback 1: Blackbox
+        # Fallback 2: Blackbox (text-only)
         if self._use_blackbox():
-            try:
-                return self._blackbox_pass1(transcript_text, keyframe_paths)
-            except Exception as e:
-                logger.warning(f"[Blackbox] Pass 1 failed: {e}. Trying Ollama...")
-
-        # Fallback 2: Ollama
-        if self._use_ollama():
-            return self._ollama_pass1(transcript_text, keyframe_paths)
+            return self._blackbox_pass1(transcript_text, keyframe_paths)
 
         # All providers exhausted
-        raise RuntimeError("All LLM providers failed for Pass 1 (Gemini, Blackbox, Ollama)")
+        raise RuntimeError("All LLM providers failed for Pass 1 (Ollama, Gemini, Blackbox)")
 
     def pass1_extract_signals_parallel(
         self,
@@ -294,7 +294,14 @@ If nothing suspicious is found, return empty phrases array."""
 
     def pass2_score_risk(self, signals: SignalExtractionResult) -> RiskScoringResult:
         """Pass 2: score risk from extracted signals."""
-        # Try Gemini first
+        # Try Ollama first (local)
+        if self._use_ollama():
+            try:
+                return self._ollama_pass2(signals)
+            except Exception as e:
+                logger.warning(f"[Ollama] Pass 2 failed: {e}. Trying Gemini...")
+
+        # Fallback 1: Gemini (multimodal)
         if self._client is not None:
             signals_payload = {
                 "phrases": [{"text": p.text, "timestamp_s": p.timestamp_s, "category": p.category} for p in signals.phrases],
@@ -311,19 +318,12 @@ If nothing suspicious is found, return empty phrases array."""
             except Exception:
                 logger.warning("[Gemini] Pass 2 Gemini failed. Trying Blackbox...")
 
-        # Fallback 1: Blackbox
+        # Fallback 2: Blackbox (text-only)
         if self._use_blackbox():
-            try:
-                return self._blackbox_pass2(signals)
-            except Exception as e:
-                logger.warning(f"[Blackbox] Pass 2 failed: {e}. Trying Ollama...")
-
-        # Fallback 2: Ollama
-        if self._use_ollama():
-            return self._ollama_pass2(signals)
+            return self._blackbox_pass2(signals)
 
         # All providers exhausted
-        raise RuntimeError("All LLM providers failed for Pass 2 (Gemini, Blackbox, Ollama)")
+        raise RuntimeError("All LLM providers failed for Pass 2 (Ollama, Gemini, Blackbox)")
 
     def _ollama_pass1(self, transcript_text: str, keyframe_paths: list[str]) -> SignalExtractionResult:
         user_prompt = (
