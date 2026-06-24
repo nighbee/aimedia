@@ -35,4 +35,5 @@ func Setup(app *fiber.App, h *handler.Handler, authHandler *handler.AuthHandler,
 	// Internal API — internal token protected (called by Python worker)
 	internal := app.Group("/internal/v1", middleware.InternalToken(cfg, logger))
 	internal.Patch("/jobs/:id/status", h.UpdateJobStatus)
+	internal.Patch("/jobs/:id/evidence", h.UpdateEvidenceURL)
 }

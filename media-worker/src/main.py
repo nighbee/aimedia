@@ -252,7 +252,6 @@ def process_job(
             evidence_url=None,
             custody_log=custody_log,
         )
-        _sync_status(job_id, "completed")
         log_stage(job_id, "result", f"published — risk_score={scoring.risk_score} (publishing before PDF)")
 
         # ── Stage 7: Evidence Pack (async, non-blocking) ───────────────────
@@ -301,7 +300,6 @@ def process_job(
         logger.error(traceback.format_exc())
         custody_log.append(_custody_entry(stage, f"FAILED: {e}"))
         producer.publish_failed(job_id=job_id, stage=stage, error=str(e), custody_log=custody_log)
-        _sync_status(job_id, "failed", failed_at_stage=stage)
 
     finally:
         try:

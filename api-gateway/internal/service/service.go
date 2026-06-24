@@ -14,6 +14,7 @@ type JobService interface {
 	GetJob(ctx context.Context, id uuid.UUID) (*model.Job, *model.AnalysisResult, error)
 	ListJobs(ctx context.Context, params model.ListJobsParams) (*model.JobListResponse, error)
 	UpdateJobStatus(ctx context.Context, id uuid.UUID, status model.JobStatus) error
+	UpdateEvidenceURL(ctx context.Context, id uuid.UUID, evidenceURL string) error
 	GetEvidenceURL(ctx context.Context, id uuid.UUID) (*string, error)
 	SetS3Client(s3 *storage.S3Client)
 }

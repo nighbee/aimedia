@@ -200,6 +200,10 @@ func (s *jobService) SetS3Client(s3 *storage.S3Client) {
 	s.s3 = s3
 }
 
+func (s *jobService) UpdateEvidenceURL(ctx context.Context, id uuid.UUID, evidenceURL string) error {
+	return s.jobRepo.UpdateEvidenceURL(ctx, id, evidenceURL)
+}
+
 func (s *jobService) GetEvidenceURL(ctx context.Context, id uuid.UUID) (*string, error) {
 	job, err := s.jobRepo.FindByID(ctx, id)
 	if err != nil {

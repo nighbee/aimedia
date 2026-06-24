@@ -201,3 +201,18 @@ func (r *JobRepository) Complete(ctx context.Context, id uuid.UUID, riskScore in
 	}
 	return nil
 }
+
+func (r *JobRepository) UpdateEvidenceURL(ctx context.Context, id uuid.UUID, evidenceURL string) error {
+	query := `
+		UPDATE core.jobs
+		SET evidence_url = $1, updated_at = $2
+		WHERE id = $3`
+	result, err := r.pool.Exec(ctx, query, evidenceURL, time.Now().UTC(), id)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

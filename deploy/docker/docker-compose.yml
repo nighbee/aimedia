@@ -152,7 +152,7 @@ services:
   # Ollama — Local LLM inference (no API key needed)
   ollama:
     image: ollama/ollama:latest
-    container_name: aimedia-ollama
+    container_name: ollama
     ports:
       - "11434:11434"
     volumes:
@@ -173,7 +173,7 @@ services:
   # Ollama model initializer (pulls model once, then exits)
   ollama-init:
     image: ollama/ollama:latest
-    container_name: aimedia-ollama-init
+    container_name: ollama-init
     depends_on:
       ollama:
         condition: service_healthy
@@ -205,7 +205,7 @@ services:
     build:
       context: ../../api-gateway
       dockerfile: Dockerfile
-    container_name: aimedia-api-gateway
+    container_name: api
     ports:
       - "8080:8080"
     environment:
@@ -262,7 +262,7 @@ services:
     build:
       context: ../../media-worker
       dockerfile: Dockerfile
-    container_name: aimedia-media-worker
+    container_name: ai
     environment:
       # Kafka
       KAFKA_BROKERS: kafka:29092
