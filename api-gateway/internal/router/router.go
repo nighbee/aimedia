@@ -26,10 +26,10 @@ func Setup(app *fiber.App, h *handler.Handler, authHandler *handler.AuthHandler,
 	// Job submission + status polling — no auth required
 	app.Post("/api/v1/jobs", h.SubmitJob)
 	app.Get("/api/v1/jobs/:id", h.GetJob)
+	app.Get("/api/v1/jobs", h.ListJobs)
 
 	// External API — JWT protected
 	api := app.Group("/api/v1", middleware.JWTAuth(cfg, logger))
-	api.Get("/jobs", h.ListJobs)
 	api.Get("/jobs/:id/evidence", h.GetEvidence)
 
 	// Internal API — internal token protected (called by Python worker)

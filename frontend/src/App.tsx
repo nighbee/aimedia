@@ -4,6 +4,7 @@ import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
 import ProcessingPage from './pages/ProcessingPage';
 import ReportPage from './pages/ReportPage';
+import HistoryPage from './pages/HistoryPage';
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <main className="flex-1">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/history" element={<HistoryPage />} />
             <Route path="/processing/:jobId" element={<ProcessingPage />} />
             <Route path="/report/:jobId" element={<ReportPage />} />
           </Routes>
